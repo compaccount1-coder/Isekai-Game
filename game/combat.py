@@ -1,13 +1,16 @@
 """Rundenbasiertes Kampfsystem: der Charakter setzt in jeder Runde eine seiner
 erlernten Fähigkeiten ein, sichtbar mit Schaden und verbleibenden HP beider Seiten.
-Begleiter kämpfen autonom mit und handeln passend zu ihrer Rolle: Nahkämpfer
-binden die Aufmerksamkeit des Gegners und mindern so den Schaden am Anführer,
-Fernkämpfer greifen zusätzlich an, Unterstützer heilen die Gruppe."""
+Jeder Skill wirkt gemäß seiner tatsächlichen Thematik (siehe classes.SKILL_EFFEKT):
+Heilzauber heilen, Schild-/Segensprüche schützen oder verstärken, Schwächungs-
+zauber mindern den Gegner - nicht jeder Skill teilt einfach nur Schaden aus.
+Begleiter kämpfen autonom mit und handeln passend zu ihrer Rolle und dem
+gewürfelten Skill: Nahkämpfer binden die Aufmerksamkeit des Gegners, Fernkämpfer
+greifen zusätzlich an, Unterstützer setzen ihre Fähigkeit thematisch passend ein."""
 
 import random
 from dataclasses import dataclass, field
 
-from game.classes import KLASSEN
+from game.classes import KLASSEN, skill_effekt
 
 GEGNER_NAMEN_SCHWACH = [
     "Wilder Wolf", "Riesenspinne", "Wegelagerer", "Verrotteter Zombie", "Kobold-Plünderer",
@@ -152,13 +155,18 @@ def _waehle_skill_fuer_runde(charakter) -> tuple[str, int]:
     return gewaehlt.name, gewaehlt.level
 
 
-def _begleiter_runde(charakter, gegner: "Kampfgegner", log: list[str]) -> float:
-    """Lässt jeden Begleiter autonom eine zu seiner Rolle passende Aktion
-    ausführen. Nahkämpfer binden die Aufmerksamkeit des Gegners (Tank) und
-    mindern dadurch den Schaden, den der Anführer diese Runde erleidet;
-    Fernkämpfer greifen zusätzlich an; Unterstützer heilen die Gruppe.
+def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
+    """Lässt jeden Begleiter autonom eine zu seiner Rolle UND dem gewürfelten
+    Skill passende Aktion ausführen. Nahkämpfer binden als Tank die
+    Aufmerksamkeit des Gegners; Fernkämpfer greifen zusätzlich an;
+    Unterstützer setzen ihre Fähigkeit gemäß deren tatsächlicher Wirkung ein
+    (siehe classes.SKILL_EFFEKT) - ein Heilzauber heilt, ein Schwächungszauber
+    schwächt den Gegner, ein Segen verstärkt den nächsten Angriff, statt dass
+    jeder Unterstützer-Skill unabhängig von seiner Thematik einfach nur heilt.
     Gibt die daraus resultierende Schadensreduktion für den kommenden
     Gegnerangriff zurück."""
+    charakter = kampf.charakter
+    gegner = kampf.gegner
     schadensreduktion = 0.0
     basis_pro_begleiter = charakter.kampfkraft_basis() * 0.18
     for b in charakter.begleiter:
@@ -176,12 +184,28 @@ def _begleiter_runde(charakter, gegner: "Kampfgegner", log: list[str]) -> float:
             gegner.hp = max(0, gegner.hp - schaden)
             log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
         elif b.rolle == "Unterstützer":
-            if charakter.hp_aktuell < charakter.hp_max:
-                heilung = min(charakter.hp_max - charakter.hp_aktuell, max(1, int(anteil * random.uniform(0.8, 1.2))))
-                charakter.hp_aktuell += heilung
-                log.append(f"   {b.name} setzt {skill.name} ein und heilt {charakter.name} um {heilung} HP. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
-            else:
-                log.append(f"   {b.name} setzt {skill.name} ein und stärkt die Gruppe.")
+            effekt = skill_effekt(skill.name)
+            if effekt in ("heilung", "notheilung"):
+                if charakter.hp_aktuell < charakter.hp_max:
+                    mult = 1.6 if effekt == "notheilung" else 1.0
+                    heilung = min(charakter.hp_max - charakter.hp_aktuell, max(1, int(anteil * random.uniform(0.8, 1.2) * mult)))
+                    charakter.hp_aktuell += heilung
+                    log.append(f"   {b.name} setzt {skill.name} ein und heilt {charakter.name} um {heilung} HP. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
+                else:
+                    log.append(f"   {b.name} setzt {skill.name} ein, doch {charakter.name} braucht keine Heilung.")
+            elif effekt == "schaden":
+                schaden = max(1, int(anteil * random.uniform(0.7, 1.0)))
+                gegner.hp = max(0, gegner.hp - schaden)
+                log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+            elif effekt == "buff":
+                kampf.spieler_bonus_naechste_runde += 0.15
+                log.append(f"   {b.name} setzt {skill.name} ein und verstärkt {charakter.name}s nächsten Angriff.")
+            elif effekt == "debuff":
+                gegner.angriffskraft = max(1, int(gegner.angriffskraft * 0.92))
+                log.append(f"   {b.name} setzt {skill.name} ein und schwächt {gegner.name}.")
+            else:  # schild / aggro
+                schadensreduktion += 0.15
+                log.append(f"   {b.name} setzt {skill.name} ein und schirmt {charakter.name} ab.")
         else:  # Nahkämpfer - zieht als Tank die Aufmerksamkeit auf sich
             schaden = max(1, int(anteil * random.uniform(0.5, 0.8)))
             gegner.hp = max(0, gegner.hp - schaden)
@@ -219,6 +243,9 @@ class Kampf:
         self.log: list[str] = [f"⚔️ {charakter.name} trifft auf {gegner.name} ({gegner.hp} HP)!"]
         self.beendet = False
         self.sieg = False
+        # Von Verstärkungs-Fähigkeiten (eigene oder von Begleitern) gesetzt -
+        # erhöht den Schaden des NÄCHSTEN eigenen Angriffs und wird danach verbraucht.
+        self.spieler_bonus_naechste_runde = 0.0
 
     def verfuegbare_aktionen(self) -> list[str]:
         """Die Fähigkeiten, aus denen der Spieler diese Runde wählen kann."""
@@ -228,9 +255,13 @@ class Kampf:
 
     def runde_ausfuehren(self, gewaehlte_aktion: str) -> list[str]:
         """Führt eine komplette Kampfrunde mit der vom Spieler gewählten
-        Fähigkeit aus (eigener Angriff, Begleiter-Aktionen, Gegenangriff) und
-        gibt die neuen Log-Zeilen zurück. Setzt self.beendet/self.sieg, sobald
-        der Kampf danach entschieden ist."""
+        Fähigkeit aus. Die Wirkung richtet sich nach der tatsächlichen
+        Thematik des Skills (siehe classes.SKILL_EFFEKT): Angriffs-Skills
+        schaden dem Gegner, Heilzauber heilen den Charakter, Segen verstärken
+        den nächsten Angriff, Schilde mindern den kommenden Gegenschlag,
+        Schwächungszauber mindern die Kraft des Gegners. Gibt die neuen
+        Log-Zeilen zurück und setzt self.beendet/self.sieg, sobald der Kampf
+        danach entschieden ist."""
         if self.beendet:
             return []
         charakter = self.charakter
@@ -249,18 +280,38 @@ class Kampf:
             gewaehlte_aktion = "Angriff"
             skill_level = 0
 
+        effekt = skill_effekt(gewaehlte_aktion) if gewaehlte_aktion != "Angriff" else "schaden"
         kampfkraft_basis = charakter.kampfkraft_basis()
-        schaden = int(kampfkraft_basis * random.uniform(0.22, 0.32) * (1 + skill_level * 0.06))
-        kritisch = random.random() < 0.12
-        if kritisch:
-            schaden = int(schaden * 1.6)
-        gegner.hp = max(0, gegner.hp - schaden)
+        eigener_schild_diese_runde = 0.0
 
-        krit_text = " (KRITISCHER TREFFER!)" if kritisch else ""
-        if gewaehlte_aktion == "Angriff":
-            zeilen.append(f"   {charakter.name} greift an{krit_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
-        else:
-            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein{krit_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+        if effekt == "schaden":
+            bonus = 1.0 + self.spieler_bonus_naechste_runde
+            self.spieler_bonus_naechste_runde = 0.0
+            schaden = int(kampfkraft_basis * random.uniform(0.22, 0.32) * (1 + skill_level * 0.06) * bonus)
+            kritisch = random.random() < 0.12
+            if kritisch:
+                schaden = int(schaden * 1.6)
+            gegner.hp = max(0, gegner.hp - schaden)
+            krit_text = " (KRITISCHER TREFFER!)" if kritisch else ""
+            verstaerkt_text = " (VERSTÄRKT!)" if bonus > 1.0 else ""
+            if gewaehlte_aktion == "Angriff":
+                zeilen.append(f"   {charakter.name} greift an{krit_text}{verstaerkt_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+            else:
+                zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein{krit_text}{verstaerkt_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+        elif effekt in ("heilung", "notheilung"):
+            basis_anteil = 0.3 if effekt == "notheilung" else 0.16
+            heilung = min(charakter.hp_max - charakter.hp_aktuell, max(1, int(charakter.hp_max * (basis_anteil + skill_level * 0.02))))
+            charakter.hp_aktuell += heilung
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt sich um {heilung} HP. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
+        elif effekt == "buff":
+            self.spieler_bonus_naechste_runde += 0.2 + skill_level * 0.02
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein - der nächste Angriff wird spürbar verstärkt.")
+        elif effekt in ("schild", "aggro"):
+            eigener_schild_diese_runde = 0.2 + skill_level * 0.015
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und wappnet sich für den Gegenschlag.")
+        elif effekt == "debuff":
+            gegner.angriffskraft = max(1, int(gegner.angriffskraft * (0.92 - skill_level * 0.005)))
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und schwächt {gegner.name}.")
 
         if gegner.hp <= 0:
             zeilen.append(f"   💀 {gegner.name} ist besiegt!")
@@ -269,7 +320,7 @@ class Kampf:
             self.log.extend(zeilen)
             return zeilen
 
-        schadensreduktion = _begleiter_runde(charakter, gegner, zeilen)
+        schadensreduktion = _begleiter_runde(self, zeilen) + eigener_schild_diese_runde
         if gegner.hp <= 0:
             self.beendet = True
             self.sieg = True
@@ -278,7 +329,8 @@ class Kampf:
 
         angriffsname = random.choice(gegner.angriffe) if gegner.angriffe else "kontert"
         gegen_schaden = int(gegner.angriffskraft * random.uniform(0.14, 0.22))
-        gegen_schaden = int(gegen_schaden * (1 - schadensreduktion - charakter.schadensreduktion()))
+        gesamt_reduktion = min(0.8, schadensreduktion + charakter.schadensreduktion())
+        gegen_schaden = int(gegen_schaden * (1 - gesamt_reduktion))
         charakter.hp_aktuell = max(0, charakter.hp_aktuell - gegen_schaden)
         zeilen.append(f"   {gegner.name} {angriffsname} - {gegen_schaden} Schaden. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
 

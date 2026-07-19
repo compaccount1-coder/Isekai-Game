@@ -328,3 +328,71 @@ TANK_PFADE: dict[str, dict] = {
 
 def klasse_hat_tank_pfad(klasse_id: str) -> bool:
     return klasse_id in TANK_PFADE
+
+
+# ---------------------------------------------------------------------------
+# Fähigkeits-Wirkung: was ein Skill im Kampf tatsächlich auslöst. Ohne diese
+# Zuordnung wurde jeder Skill rein kosmetisch benannt, aber immer identisch
+# aufgelöst (Unterstützer heilen z.B. IMMER, auch bei "Giftnebel" oder
+# "Göttlicher Zorn") - unlogisch, wenn die eigene Beschreibung offensiv ist.
+# Nicht gelistete Skills gelten als "schaden" (Standardverhalten, passt auf
+# die meisten Kampf-Fähigkeiten).
+# ---------------------------------------------------------------------------
+
+SKILL_EFFEKT: dict[str, str] = {
+    # Heilung (stellt HP wieder her)
+    "Lebensentzug": "heilung",
+    "Läuterung": "heilung",
+    "Naturheilung": "heilung",
+    "Innere Ruhe": "heilung",
+    "Heilendes Licht": "heilung",
+    "Heiltrank werfen": "heilung",
+    # Notheilung (starke Heilung für kritische Momente)
+    "Wiederauferstehung": "notheilung",
+    "Wiederbelebung": "notheilung",
+    "Lied der Wiedergeburt": "notheilung",
+    "Elixier der letzten Stunde": "notheilung",
+    # Schild (reduziert erlittenen Schaden diese Runde)
+    "Knochenpanzer": "schild",
+    "Schildwall": "schild",
+    "Unbeugsamer Wille": "schild",
+    "Arkaner Schild": "schild",
+    "Schutzschild": "schild",
+    "Standhafter Glaube": "schild",
+    "Unsichtbarkeit": "schild",
+    "Rauchbombe": "schild",
+    "Eisenhaut": "schild",
+    "Schutzaura": "schild",
+    "Bannfluch": "schild",
+    "Segen der Standhaftigkeit": "schild",
+    "Verwandlungstrank": "schild",
+    "Chor der Standhaften": "schild",
+    "Eiserne Deckung": "schild",
+    "Letzte Bastion": "schild",
+    "Geweihter Schild": "schild",
+    "Märtyrergelübde": "schild",
+    "Steinerne Haltung": "schild",
+    "Unbeugsamer Atem": "schild",
+    # Aggro (zieht Aufmerksamkeit auf sich, wirkt wie ein Schild)
+    "Spott": "aggro",
+    "Provokation": "aggro",
+    # Verstärkung (erhöht den nächsten Angriff der Gruppe)
+    "Kriegsschrei": "buff",
+    "Kreaturenbund": "buff",
+    "Kampflied": "buff",
+    "Heldenepos": "buff",
+    "Segen": "buff",
+    "Gruppensegen": "buff",
+    "Stärkungselixier": "buff",
+    "Katalysator": "buff",
+    # Schwächung (mindert die Kraft des Gegners)
+    "Zeitverzerrung": "debuff",
+    "Manaentzug": "debuff",
+    "Schlaflied": "debuff",
+    "Massenbezauberung": "debuff",
+    "Spöttisches Lied": "debuff",
+}
+
+
+def skill_effekt(skill_name: str) -> str:
+    return SKILL_EFFEKT.get(skill_name, "schaden")
