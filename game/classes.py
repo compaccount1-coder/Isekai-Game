@@ -291,16 +291,20 @@ def klassen_nach_rolle(rolle: str) -> list[Klasse]:
 
 
 # ---------------------------------------------------------------------------
-# Spezialisierung: Nahkämpfer können sich bei Level 30 dazu entscheiden, zum
-# Beschützer der Gruppe zu werden - ein eigener thematischer Entwicklungspfad
-# mit passenden Fähigkeiten und spürbarer Schadensreduktion, statt einfach nur
-# noch härter zuzuschlagen.
+# Aufstiegsklassen: bei Level 30 entscheidet sich jeder Charakter zwischen dem
+# angestammten Entwicklungspfad seiner Klasse (Klasse.tiers) und einer
+# alternativen Aufstiegsklasse mit eigenem Namen, eigener Thematik und
+# eigenen Fähigkeiten - z.B. wird ein Kleriker entweder zum Erzpriester
+# (Heilung) oder zum Kriegspriester (Vergeltung). Jede Aufstiegsklasse nutzt
+# gezielt die volle Bandbreite an Fähigkeits-Wirkungen (Fläche, Reflexion,
+# Gruppenschutz, Gruppenheilung), damit sich die Wahl spürbar unterscheidet.
 # ---------------------------------------------------------------------------
 
-TANK_PFADE: dict[str, dict] = {
+AUFSTIEGSPFADE: dict[str, dict] = {
     "krieger": {
         "tier30": ClassTier("Bollwerk der Front", 30, "Kein Feind durchbricht deine Verteidigungslinie."),
         "tier70": ClassTier("Unerschütterlicher Koloss", 70, "Du bist zur lebenden Festung geworden, die niemand einzureißen vermag."),
+        "kurzbeschreibung": "Wird zum Beschützer der Gruppe: Schaden mindern und reflektieren, Aufmerksamkeit der Feinde binden.",
         "skills": [
             Skill("Provokation", "Zwingst jeden Feind, sich auf dich zu konzentrieren."),
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
@@ -311,6 +315,7 @@ TANK_PFADE: dict[str, dict] = {
     "paladin": {
         "tier30": ClassTier("Schildwächter des Lichts", 30, "Dein Schild schützt nicht nur dich, sondern die gesamte Gruppe."),
         "tier70": ClassTier("Bollwerk der Himmlischen", 70, "Ein Bruchteil göttlicher Unerschütterlichkeit wohnt in deinem Schild."),
+        "kurzbeschreibung": "Wird zum Beschützer der Gruppe: Schaden mindern und reflektieren, Aufmerksamkeit der Feinde binden.",
         "skills": [
             Skill("Geweihter Schild", "Ein Schild aus reinem Licht, das jeden Hieb abfängt."),
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
@@ -321,6 +326,7 @@ TANK_PFADE: dict[str, dict] = {
     "moench": {
         "tier30": ClassTier("Fels in der Brandung", 30, "Kein Sturm bringt dich mehr aus dem Gleichgewicht."),
         "tier70": ClassTier("Unbeweglicher Berg", 70, "Selbst die Erde erzittert eher als du."),
+        "kurzbeschreibung": "Wird zum Beschützer der Gruppe: Schaden mindern und reflektieren, Aufmerksamkeit der Feinde binden.",
         "skills": [
             Skill("Steinerne Haltung", "Eine Kampfstellung, die jeden Angriff ins Leere laufen lässt."),
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
@@ -328,11 +334,87 @@ TANK_PFADE: dict[str, dict] = {
             Skill("Konterhaltung", "Eine Kampfhaltung, die jeden Treffer sofort mit gleicher Härte erwidert."),
         ],
     },
+    "nekromant": {
+        "tier30": ClassTier("Seuchenfürst", 30, "Verwesung und Seuche folgen deinen Schritten - ganze Feindesgruppen verrotten in deiner Gegenwart."),
+        "tier70": ClassTier("Herr der Verwesung", 70, "Du bist selbst zur wandelnden Seuche geworden, vor der sich selbst der Tod fürchtet."),
+        "kurzbeschreibung": "Statt einzelner Untoter beschwörst du Verfall über ganze Gegnergruppen - Fläche und Schwächung statt Einzelziel.",
+        "skills": [
+            Skill("Verwesungswolke", "Eine Wolke aus reinem Verfall, die alle Feinde zugleich schädigt und schwächt."),
+            Skill("Knochensplitterhagel", "Ein Schauer scharfkantiger Knochensplitter, der jeden Gegner auf dem Feld trifft."),
+            Skill("Todesfluch", "Ein Fluch, der die Lebenskraft eines einzelnen Feindes drastisch untergräbt."),
+        ],
+    },
+    "magier": {
+        "tier30": ClassTier("Kriegsmagier", 30, "Du verbindest arkane Macht mit kämpferischer Disziplin - ein Zauberer, der auch im Nahkampf nicht zurückweicht."),
+        "tier70": ClassTier("Meister der Klingenmagie", 70, "Stahl und Zauber sind für dich eins geworden."),
+        "kurzbeschreibung": "Statt reiner Flächenzerstörung setzt du auf arkane Selbstverteidigung und konzentrierte Vernichtungsschläge.",
+        "skills": [
+            Skill("Manabarriere", "Ein arkanes Schutzfeld, das eingehenden Schaden erheblich mindert."),
+            Skill("Arkaner Gegenschlag", "Reflektiert einen Teil erlittenen Schadens für mehrere Runden zurück."),
+            Skill("Kraftentladung", "Ein gebündelter Schlag arkaner Energie mit verheerender Wirkung auf ein einzelnes Ziel."),
+        ],
+    },
+    "assassine": {
+        "tier30": ClassTier("Giftmeister", 30, "Deine Klingen tropfen von Toxinen, die selbst nach dem tödlichen Schnitt weiterwirken."),
+        "tier70": ClassTier("Herr der tausend Gifte", 70, "Kein Gegengift kennt eine Rettung vor deinen Mischungen."),
+        "kurzbeschreibung": "Statt auf reine Fluchtgeschwindigkeit setzt du auf Gifte, die Gegner dauerhaft schwächen - einzeln oder in der Fläche.",
+        "skills": [
+            Skill("Nervengift", "Ein lähmendes Gift, das die Kampfkraft eines Gegners drastisch untergräbt."),
+            Skill("Giftwolke", "Ein zerstäubtes Toxin, das alle Feinde in Reichweite schwächt und schädigt."),
+            Skill("Tödliche Präzision", "Ein Moment absoluter Konzentration, der den nächsten Angriff enorm verstärkt."),
+        ],
+    },
+    "beschwoerer": {
+        "tier30": ClassTier("Paktwächter", 30, "Die Geister, die du bindest, schützen nicht mehr nur dich, sondern die gesamte Gruppe."),
+        "tier70": ClassTier("Hüter der gebundenen Legionen", 70, "Eine ganze Legion gebundener Geister steht zwischen deiner Gruppe und jeder Gefahr."),
+        "kurzbeschreibung": "Statt reiner Angriffskraft beschwörst du Schutzgeister, die die gesamte Gruppe abschirmen und heilen.",
+        "skills": [
+            Skill("Schutzgeist beschwören", "Ein gebundener Geist schirmt die gesamte Gruppe über mehrere Runden ab."),
+            Skill("Bindende Fessel", "Geisterhafte Ketten binden und schwächen alle gegnerischen Kämpfer zugleich."),
+            Skill("Geisterheilung", "Wohlwollende Geister schließen die Wunden der gesamten Gruppe auf einmal."),
+        ],
+    },
+    "barde": {
+        "tier30": ClassTier("Kriegssänger", 30, "Deine Lieder sind nicht mehr nur Ermutigung - sie sind Waffen, die den Feind das Fürchten lehren."),
+        "tier70": ClassTier("Stimme des Sturms", 70, "Dein Gesang allein kann Schlachten entscheiden, bevor sie beginnen."),
+        "kurzbeschreibung": "Statt reiner Ermutigung setzt du auf Klänge, die dem Feind schaden und ganze Gruppen demoralisieren.",
+        "skills": [
+            Skill("Kriegshymne", "Ein mitreißender Gesang, der den nächsten Angriff der Gruppe erheblich verstärkt."),
+            Skill("Zerreißender Akkord", "Eine Welle reiner Klangenergie, die alle Feinde gleichzeitig trifft."),
+            Skill("Lied der Verzweiflung", "Ein bedrückender Klang, der die Kampfkraft aller Feinde zugleich untergräbt."),
+        ],
+    },
+    "waldlaeufer": {
+        "tier30": ClassTier("Plänklermeister", 30, "Du bist nicht mehr nur ein Jäger einzelner Beute - deine Pfeile regnen auf ganze Gruppen von Feinden nieder."),
+        "tier70": ClassTier("Sturm der tausend Pfeile", 70, "Kein Feind entkommt deinem Pfeilhagel, egal wie viele es sind."),
+        "kurzbeschreibung": "Statt gezielter Einzelschüsse spezialisierst du dich auf Salven, die ganze Gegnergruppen gleichzeitig treffen.",
+        "skills": [
+            Skill("Splitterpfeil", "Ein Pfeil, der beim Einschlag in Splitter zerbricht und alle nahen Feinde trifft."),
+            Skill("Fallennetz", "Ein Netz aus Fallen, das mehrere Feinde zugleich fesselt und schwächt."),
+            Skill("Deckungsfeuer", "Ein Schauer aus Pfeilen, der eingehende Angriffe auf die Gruppe abschwächt."),
+        ],
+    },
+    "kleriker": {
+        "tier30": ClassTier("Kriegspriester", 30, "Dein Glaube manifestiert sich nicht mehr nur als Heilung, sondern als strafende Macht gegen die Feinde des Lichts."),
+        "tier70": ClassTier("Zorn des Himmels", 70, "Du bist zum Werkzeug göttlichen Zorns geworden."),
+        "kurzbeschreibung": "Statt reiner Heilung setzt du deinen Glauben offensiv ein - strafende Schläge und Feuer für ganze Feindesgruppen.",
+        "skills": [
+            Skill("Richtender Blitz", "Ein Blitz göttlichen Zorns, der einen einzelnen Feind mit voller Wucht trifft."),
+            Skill("Feuersturm des Glaubens", "Heiliges Feuer, das alle Feinde auf dem Schlachtfeld zugleich verzehrt."),
+            Skill("Rüstung des Gerechten", "Ein Segen, der eingehenden Schaden für die gesamte Gruppe spürbar mindert."),
+        ],
+    },
+    "alchemist": {
+        "tier30": ClassTier("Sprengmeister", 30, "Deine Mischungen dienen nicht mehr nur der Heilung - sie sind Waffen, die ganze Gruppen von Feinden verwüsten."),
+        "tier70": ClassTier("Meister der Verwüstung", 70, "Deine Explosionen kennen keine Gnade mehr."),
+        "kurzbeschreibung": "Statt auf Heilung und Unterstützung spezialisierst du dich auf Sprengstoffe und Gase, die ganze Gegnergruppen verwüsten.",
+        "skills": [
+            Skill("Feuerbombe", "Eine Bombe aus Alchemistenfeuer, die alle Feinde in der Nähe verbrennt."),
+            Skill("Zersetzungsgas", "Ein ätzendes Gas, das alle Feinde zugleich schädigt und schwächt."),
+            Skill("Überladener Trank", "Ein instabiles Gebräu, das den nächsten Angriff drastisch verstärkt."),
+        ],
+    },
 }
-
-
-def klasse_hat_tank_pfad(klasse_id: str) -> bool:
-    return klasse_id in TANK_PFADE
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +493,32 @@ SKILL_EFFEKT: dict[str, str] = {
     # Schaden + Schwächung zugleich (z.B. Gift-/Seuchenwolken)
     "Giftnebel": "schaden_debuff",
     "Seuchenwolke": "schaden_debuff",
+    "Verwesungswolke": "schaden_debuff",
+    "Giftwolke": "schaden_debuff",
+    "Zersetzungsgas": "schaden_debuff",
+
+    # --- Aufstiegsklassen-Fähigkeiten ---
+    # Schwächung (Einzelziel)
+    "Todesfluch": "debuff",
+    "Nervengift": "debuff",
+    # Schwächung (Fläche, siehe SKILL_AOE)
+    "Bindende Fessel": "debuff",
+    "Lied der Verzweiflung": "debuff",
+    "Fallennetz": "debuff",
+    # Schild (Einzelziel)
+    "Manabarriere": "schild",
+    # Gruppenschild (mehrere Runden, gesamte Gruppe)
+    "Rüstung des Gerechten": "gruppenschild",
+    "Deckungsfeuer": "gruppenschild",
+    "Schutzgeist beschwören": "gruppenschild",
+    # Reflexion
+    "Arkaner Gegenschlag": "reflexion",
+    # Gruppenheilung
+    "Geisterheilung": "gruppenheilung",
+    # Verstärkung
+    "Tödliche Präzision": "buff",
+    "Kriegshymne": "buff",
+    "Überladener Trank": "buff",
 }
 
 # Skills, die alle Gegner gleichzeitig treffen statt nur einen einzelnen -
@@ -419,6 +527,9 @@ SKILL_EFFEKT: dict[str, str] = {
 SKILL_AOE: set[str] = {
     "Pfeilhagel", "Sturm der tausend Pfeile", "Feuerball", "Meteor",
     "Massenbezauberung", "Giftnebel", "Seuchenwolke",
+    "Verwesungswolke", "Knochensplitterhagel", "Giftwolke", "Bindende Fessel",
+    "Zerreißender Akkord", "Lied der Verzweiflung", "Splitterpfeil", "Fallennetz",
+    "Feuersturm des Glaubens", "Feuerbombe", "Zersetzungsgas",
 }
 
 # Wie viele Kampfrunden ein Effekt anhält (nicht gelistete Skills wirken nur
@@ -432,6 +543,10 @@ SKILL_DAUER: dict[str, int] = {
     "Dornenpanzer": 3,
     "Vergeltungsschild": 3,
     "Konterhaltung": 3,
+    "Rüstung des Gerechten": 3,
+    "Deckungsfeuer": 3,
+    "Schutzgeist beschwören": 3,
+    "Arkaner Gegenschlag": 3,
 }
 
 

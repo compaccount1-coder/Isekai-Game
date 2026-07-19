@@ -6,7 +6,7 @@ import random
 from dataclasses import dataclass
 from typing import Callable
 
-from game.classes import KLASSEN, TANK_PFADE
+from game.classes import AUFSTIEGSPFADE, KLASSEN
 from game.endgame import (
     daemonenjagd_verfuegbar,
     demonenkoenig_verfuegbar,
@@ -279,35 +279,32 @@ def _trainieren(charakter) -> Ereignis:
     return Ereignis(text=text, xp=int(18 * charakter.level))
 
 
-def _spezialisierung_submenu(charakter) -> Submenu:
-    pfad = TANK_PFADE[charakter.klasse_id]
-    offensiv_tier = charakter.klasse.tier_fuer_level(30)
+def _aufstiegsklasse_submenu(charakter) -> Submenu:
+    pfad = AUFSTIEGSPFADE[charakter.klasse_id]
+    standard_tier = charakter.klasse.tier_fuer_level(30)
+    neue_faehigkeiten = ", ".join(s.name for s in pfad["skills"])
 
-    def waehle(tank: bool):
+    def waehle(alternative: bool):
         def aktion():
-            if tank:
-                charakter.spezialisierung = "Tank"
-                text = (
-                    f"🛡️ {charakter.name} wählt den Weg des Beschützers und wird zu: {pfad['tier30'].name}! "
-                    f"Von nun an zieht {charakter.name} im Kampf gezielt Aufmerksamkeit auf sich und trotzt "
-                    f"Schlägen, die andere niederstrecken würden."
-                )
+            if alternative:
+                charakter.spezialisierung = "Alternative"
+                text = f"✨ {charakter.name} beschreitet einen neuen Weg und wird zu: {pfad['tier30'].name}! {pfad['kurzbeschreibung']}"
                 return Ereignis(text=text, ist_wichtig=True)
-            charakter.spezialisierung = "Offensiv"
-            return Ereignis(text=f"⚔️ {charakter.name} bleibt dem Weg der Klinge treu und wird zu: {offensiv_tier.name}!", ist_wichtig=True)
+            charakter.spezialisierung = "Standard"
+            return Ereignis(text=f"⚔️ {charakter.name} bleibt dem angestammten Weg treu und wird zu: {standard_tier.name}!", ist_wichtig=True)
         return aktion
 
     opts = [
-        (f"Dem Weg der Klinge treu bleiben: {offensiv_tier.name}", waehle(False)),
-        (f"Zum Beschützer der Gruppe werden: {pfad['tier30'].name}", waehle(True)),
+        (f"{standard_tier.name} - {standard_tier.beschreibung}", waehle(False)),
+        (f"{pfad['tier30'].name} - {pfad['tier30'].beschreibung} (Neue Fähigkeiten: {neue_faehigkeiten})", waehle(True)),
     ]
-    return Submenu(f"⚔️ {charakter.name} steht an einem Wendepunkt der Ausbildung.", opts)
+    return Submenu(f"✨ {charakter.name} steht an einem Wendepunkt der Ausbildung. Welche Aufstiegsklasse soll es sein?", opts)
 
 
 def optionen_uebungsplatz(charakter) -> list[tuple[str, Aktion]]:
     opts = []
-    if charakter.level >= 30 and charakter.klasse_id in TANK_PFADE and charakter.spezialisierung is None:
-        opts.append(("⚔️ Deine Spezialisierung wählen", lambda: _spezialisierung_submenu(charakter)))
+    if charakter.level >= 30 and charakter.klasse_id in AUFSTIEGSPFADE and charakter.spezialisierung is None:
+        opts.append(("✨ Deine Aufstiegsklasse wählen", lambda: _aufstiegsklasse_submenu(charakter)))
     opts.append(("Fähigkeiten trainieren", lambda: _trainieren(charakter)))
     return opts
 

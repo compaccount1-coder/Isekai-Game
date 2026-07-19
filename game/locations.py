@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
-from game.classes import TANK_PFADE, skill_ist_aoe
+from game.classes import AUFSTIEGSPFADE, skill_ist_aoe
 from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten
 from game.companions import generiere_begleiter, gruppen_rollen, ist_ausgewogene_gruppe
 from game.endgame import (
@@ -616,39 +616,36 @@ def besuche_adelsviertel(charakter: Charakter, welt: Welt) -> Ereignis:
 # Übungsplatz
 # ---------------------------------------------------------------------------
 
-def _spezialisierung_waehlen(charakter: Charakter) -> Ereignis:
-    pfad = TANK_PFADE[charakter.klasse_id]
-    offensiv_tier = charakter.klasse.tier_fuer_level(30)
+def _aufstiegsklasse_waehlen(charakter: Charakter) -> Ereignis:
+    pfad = AUFSTIEGSPFADE[charakter.klasse_id]
+    standard_tier = charakter.klasse.tier_fuer_level(30)
+    neue_faehigkeiten = ", ".join(s.name for s in pfad["skills"])
     optionen = [
-        f"Dem Weg der Klinge treu bleiben: {offensiv_tier.name} - {offensiv_tier.beschreibung}",
-        f"Zum Beschützer der Gruppe werden: {pfad['tier30'].name} - {pfad['tier30'].beschreibung}",
+        f"{standard_tier.name} - {standard_tier.beschreibung}",
+        f"{pfad['tier30'].name} - {pfad['tier30'].beschreibung} (Neue Fähigkeiten: {neue_faehigkeiten})",
     ]
     idx = menu_waehlen(
-        f"⚔️ {charakter.name} steht an einem Wendepunkt der Ausbildung. Welcher Weg soll es sein?",
+        f"✨ {charakter.name} steht an einem Wendepunkt der Ausbildung. Welche Aufstiegsklasse soll es sein?",
         optionen,
     )
     if idx == 1:
-        charakter.spezialisierung = "Tank"
-        text = (
-            f"🛡️ {charakter.name} wählt den Weg des Beschützers und wird zu: {pfad['tier30'].name}! "
-            f"Von nun an zieht {charakter.name} im Kampf gezielt Aufmerksamkeit auf sich und trotzt Schlägen, "
-            f"die andere niederstrecken würden."
-        )
+        charakter.spezialisierung = "Alternative"
+        text = f"✨ {charakter.name} beschreitet einen neuen Weg und wird zu: {pfad['tier30'].name}! {pfad['kurzbeschreibung']}"
         return Ereignis(text=text, ist_wichtig=True)
-    charakter.spezialisierung = "Offensiv"
-    text = f"⚔️ {charakter.name} bleibt dem Weg der Klinge treu und wird zu: {offensiv_tier.name}!"
+    charakter.spezialisierung = "Standard"
+    text = f"⚔️ {charakter.name} bleibt dem angestammten Weg treu und wird zu: {standard_tier.name}!"
     return Ereignis(text=text, ist_wichtig=True)
 
 
 def besuche_uebungsplatz(charakter: Charakter) -> Ereignis:
-    spezialisierung_verfuegbar = (
-        charakter.level >= 30 and charakter.klasse_id in TANK_PFADE and charakter.spezialisierung is None
+    aufstieg_verfuegbar = (
+        charakter.level >= 30 and charakter.klasse_id in AUFSTIEGSPFADE and charakter.spezialisierung is None
     )
-    if spezialisierung_verfuegbar:
-        optionen = ["Trainieren", "⚔️ Deine Spezialisierung wählen"]
+    if aufstieg_verfuegbar:
+        optionen = ["Trainieren", "✨ Deine Aufstiegsklasse wählen"]
         idx = menu_waehlen(f"🎯 {charakter.name} erreicht den Übungsplatz.", optionen)
         if idx == 1:
-            return _spezialisierung_waehlen(charakter)
+            return _aufstiegsklasse_waehlen(charakter)
 
     skill_meldung = None
     if charakter.gelernte_skills:

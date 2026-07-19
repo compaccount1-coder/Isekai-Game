@@ -3,7 +3,7 @@
 import random
 from dataclasses import dataclass, field
 
-from game.classes import KLASSEN, TANK_PFADE, Klasse
+from game.classes import AUFSTIEGSPFADE, KLASSEN, Klasse
 from game.companions import Begleiter
 from game.items import Item, Trank, generiere_item, generiere_trank, schmiede_upgrade
 
@@ -71,8 +71,14 @@ class Charakter:
     traenke: list[Trank] = field(default_factory=list)
     besiegte_daemonenfuersten: list[str] = field(default_factory=list)
     daemonenkoenig_besiegt: bool = False
-    spezialisierung: str | None = None  # "Tank" für Nahkämpfer, die sich zum Beschützer entwickelt haben
+    spezialisierung: str | None = None  # None (unentschieden), "Standard" oder "Alternative" (siehe AUFSTIEGSPFADE)
     story_gesehen: list[str] = field(default_factory=list)  # Schlüssel bereits gezeigter Story-Meilensteine
+
+    # Nahkämpfer-Klassen, deren Aufstiegsklasse speziell auf Verteidigung der
+    # Gruppe ausgelegt ist - nur bei diesen gibt die Wahl "Alternative" die
+    # passive Schadensreduktion unten (die anderen Aufstiegsklassen wirken
+    # rein über ihre aktiven Fähigkeiten, nicht über eine Dauer-Passiv).
+    _TANK_KLASSEN = ("krieger", "paladin", "moench")
 
     @property
     def klasse(self) -> Klasse:
@@ -80,8 +86,8 @@ class Charakter:
 
     @property
     def tier(self):
-        if self.spezialisierung == "Tank" and self.klasse_id in TANK_PFADE:
-            pfad = TANK_PFADE[self.klasse_id]
+        if self.spezialisierung == "Alternative" and self.klasse_id in AUFSTIEGSPFADE:
+            pfad = AUFSTIEGSPFADE[self.klasse_id]
             if self.level >= pfad["tier70"].min_level:
                 return pfad["tier70"]
             elif self.level >= pfad["tier30"].min_level:
@@ -89,10 +95,10 @@ class Charakter:
         return self.klasse.tier_fuer_level(self.level)
 
     def schadensreduktion(self) -> float:
-        """Passive Schadensreduktion durch die Tank-Spezialisierung - der
+        """Passive Schadensreduktion durch die Tank-Aufstiegsklasse - der
         mechanische Kern dessen, was einen Nahkämpfer zum Beschützer der
         Gruppe macht, statt nur ein weiterer Namenswechsel zu sein."""
-        if self.spezialisierung != "Tank":
+        if self.spezialisierung != "Alternative" or self.klasse_id not in self._TANK_KLASSEN:
             return 0.0
         basis = 0.15
         if "Eiserne Deckung" in self.gelernte_skills or "Geweihter Schild" in self.gelernte_skills or "Steinerne Haltung" in self.gelernte_skills:
@@ -218,8 +224,8 @@ class Charakter:
             if self.level >= mindestlevel:
                 verfuegbar.append(skill)
 
-        if self.spezialisierung == "Tank" and self.klasse_id in TANK_PFADE and self.level >= 30:
-            verfuegbar += [s for s in TANK_PFADE[self.klasse_id]["skills"] if s.name not in self.gelernte_skills]
+        if self.spezialisierung == "Alternative" and self.klasse_id in AUFSTIEGSPFADE and self.level >= 30:
+            verfuegbar += [s for s in AUFSTIEGSPFADE[self.klasse_id]["skills"] if s.name not in self.gelernte_skills]
 
         if not verfuegbar:
             return None
