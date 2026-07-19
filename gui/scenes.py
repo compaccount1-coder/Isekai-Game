@@ -7,7 +7,7 @@ import pygame
 
 from game import locations as locations_module
 from game import savegame
-from gui import orte, spiellauf, theme, widgets
+from gui import hintergruende, orte, spiellauf, theme, widgets
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import KLASSEN
 from game.combat import Kampfstart
@@ -84,7 +84,7 @@ class TitleScene(Szene):
             self.app.laeuft = False
 
     def draw(self, surface):
-        surface.fill(theme.ORT_FARBEN["titel"])
+        surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
         titel = theme.font(60, fett=True).render("ISEKAI CHRONICLES", True, theme.FARBEN["akzent"])
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 210))
         untertitel = theme.font(20).render("Eine Geschichte voller unendlicher Möglichkeiten", True, theme.FARBEN["text_dim"])
@@ -139,7 +139,7 @@ class CharErstellungScene(Szene):
         self.name_eingabe.update(dt)
 
     def draw(self, surface):
-        surface.fill(theme.ORT_FARBEN["titel"])
+        surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
         titel = theme.font(28, fett=True).render("Wähle deinen Weg in dieser neuen Welt", True, theme.FARBEN["akzent"])
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 40))
         intro_zeilen = widgets.zeilenumbruch(self.intro, theme.font(15), theme.BREITE - 240)
@@ -201,12 +201,14 @@ class HubScene(Szene):
                 ort_id = self.ort_ids[i]
                 optionen = orte.optionen_fuer_ort(ort_id, self.charakter, self.welt)
                 ort = locations_module.ORTE[ort_id]
-                farbe = theme.ORT_FARBEN.get(ort_id, theme.FARBEN["hintergrund"])
-                self.app.wechsle_szene(OrtScene(self.app, self.charakter, self.welt, f"{ort.icon} {ort.name}", optionen, farbe))
+                zurueck = lambda: HubScene(self.app, self.charakter, self.welt)
+                self.app.wechsle_szene(
+                    OrtScene(self.app, self.charakter, self.welt, f"{ort.icon} {ort.name}", optionen, ort_id, zurueck=zurueck)
+                )
                 return
 
     def draw(self, surface):
-        surface.fill(theme.FARBEN["hintergrund"])
+        surface.blit(hintergruende.hintergrund_fuer("hub"), (0, 0))
         _statusleiste(surface, self.charakter)
         if self.charakter.aktionen_uebrig <= 0:
             kopf_text = f"😴 {self.charakter.name} ist erschöpft - Zeit, in der Taverne zu schlafen."
@@ -223,13 +225,13 @@ class OrtScene(Szene):
     löst die gewählte Aktion aus - entweder ein weiteres Untermenü oder ein
     Ereignis, das dann zur Anzeige/Tagesabschluss-Kette übergeben wird."""
 
-    def __init__(self, app, charakter, welt, titel, optionen, hintergrundfarbe, zurueck=None):
+    def __init__(self, app, charakter, welt, titel, optionen, ort_id, zurueck=None):
         super().__init__(app)
         self.charakter = charakter
         self.welt = welt
         self.titel = titel
         self.optionen = optionen
-        self.hintergrundfarbe = hintergrundfarbe
+        self.ort_id = ort_id
         self.zurueck = zurueck
         self.buttons: list[Button] = []
         self.zurueck_button: Button | None = None
@@ -262,15 +264,15 @@ class OrtScene(Szene):
         if isinstance(ergebnis, Submenu):
             zurueck_ziel = self
             self.app.wechsle_szene(
-                OrtScene(self.app, self.charakter, self.welt, ergebnis.titel, ergebnis.optionen, self.hintergrundfarbe, zurueck=lambda: zurueck_ziel)
+                OrtScene(self.app, self.charakter, self.welt, ergebnis.titel, ergebnis.optionen, self.ort_id, zurueck=lambda: zurueck_ziel)
             )
         elif isinstance(ergebnis, Kampfstart):
-            self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.titel, ergebnis, self.hintergrundfarbe))
+            self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.titel, ergebnis, self.ort_id))
         else:
-            _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.titel, ergebnis)
+            _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.titel, ergebnis, self.ort_id)
 
     def draw(self, surface):
-        surface.fill(self.hintergrundfarbe)
+        surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
         _statusleiste(surface, self.charakter)
         titel_zeilen = widgets.zeilenumbruch(self.titel, theme.font(25, fett=True), theme.BREITE - 160)
         y = 200
@@ -290,14 +292,14 @@ class KampfScene(Szene):
     abläuft. Mehrere Kämpfe in Folge (z.B. ein Dungeon) werden durch Verketten
     weiterer KampfScene-Instanzen über bei_abschluss abgebildet."""
 
-    def __init__(self, app, charakter, welt, ort_titel, kampfstart, hintergrundfarbe=None):
+    def __init__(self, app, charakter, welt, ort_titel, kampfstart, ort_id=None):
         super().__init__(app)
         self.charakter = charakter
         self.welt = welt
         self.ort_titel = ort_titel
         self.kampfstart = kampfstart
         self.kampf = kampfstart.kampf
-        self.hintergrundfarbe = hintergrundfarbe or theme.FARBEN["hintergrund"]
+        self.ort_id = ort_id
         self.scroll = 0
         self._auto_scroll = True
         self._textrect = pygame.Rect(80, 300, theme.BREITE - 160, theme.HOEHE - 460)
@@ -338,14 +340,14 @@ class KampfScene(Szene):
         if self.kampf.beendet:
             folge = self.kampfstart.bei_abschluss(self.kampf.ergebnis())
             if isinstance(folge, Kampfstart):
-                self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.ort_titel, folge, self.hintergrundfarbe))
+                self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.ort_titel, folge, self.ort_id))
             else:
-                _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.ort_titel, folge)
+                _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.ort_titel, folge, self.ort_id)
         else:
             self._baue_buttons()
 
     def draw(self, surface):
-        surface.fill(self.hintergrundfarbe)
+        surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
         _statusleiste(surface, self.charakter)
 
         titel = theme.font(26, fett=True).render(f"⚔️ {self.kampf.gegner.name}", True, theme.FARBEN["akzent"])
@@ -377,11 +379,11 @@ class MeldungScene(Szene):
     eine übergebene Callback-Funktion aufruft. Wird für Ereignis-Ergebnisse,
     Story-Beats und das Spielende verwendet."""
 
-    def __init__(self, app, titel, text, weiter_text, on_weiter, hintergrundfarbe=None):
+    def __init__(self, app, titel, text, weiter_text, on_weiter, ort_id=None):
         super().__init__(app)
         self.titel = titel
         self.text = text
-        self.hintergrundfarbe = hintergrundfarbe or theme.FARBEN["hintergrund"]
+        self.ort_id = ort_id
         self.on_weiter = on_weiter
         self.scroll = 0
         self._textrect = pygame.Rect(80, 150, theme.BREITE - 160, theme.HOEHE - 260)
@@ -394,7 +396,7 @@ class MeldungScene(Szene):
             self.on_weiter()
 
     def draw(self, surface):
-        surface.fill(self.hintergrundfarbe)
+        surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
         titel_label = theme.font(30, fett=True).render(self.titel, True, theme.FARBEN["akzent"])
         surface.blit(titel_label, (80, 60))
         widgets.panel(surface, self._textrect)
@@ -404,7 +406,7 @@ class MeldungScene(Szene):
         self.weiter_button.draw(surface)
 
 
-def _starte_ereignis_anzeige(app, charakter, welt, ort_titel, ereignis):
+def _starte_ereignis_anzeige(app, charakter, welt, ort_titel, ereignis, ort_id=None):
     text, gestorben = spiellauf.verarbeite_ereignis(charakter, ereignis)
     icon = "💥 " if ereignis.ist_wichtig else ""
 
@@ -423,12 +425,12 @@ def _starte_ereignis_anzeige(app, charakter, welt, ort_titel, ereignis):
         ende_grund = spiellauf.pruefe_spielende(charakter)
         if zusatztext.strip():
             app.wechsle_szene(
-                MeldungScene(app, "📅 Der Tag geht weiter", zusatztext, "Weiter", lambda: _nach_tagesende(app, charakter, welt, ende_grund))
+                MeldungScene(app, "📅 Der Tag geht weiter", zusatztext, "Weiter", lambda: _nach_tagesende(app, charakter, welt, ende_grund), ort_id)
             )
         else:
             _nach_tagesende(app, charakter, welt, ende_grund)
 
-    app.wechsle_szene(MeldungScene(app, f"{icon}{ort_titel}", text, "Weiter", weiter))
+    app.wechsle_szene(MeldungScene(app, f"{icon}{ort_titel}", text, "Weiter", weiter, ort_id))
 
 
 def _nach_tagesende(app, charakter, welt, ende_grund):
@@ -440,4 +442,4 @@ def _nach_tagesende(app, charakter, welt, ende_grund):
 
 def _zeige_ende(app, charakter, welt, grund):
     ende_text = erzeuge_ende(charakter, welt, grund)
-    app.wechsle_szene(MeldungScene(app, "📖 Das Ende deiner Geschichte", ende_text, "Zum Titelbildschirm", lambda: app.wechsle_szene(TitleScene(app))))
+    app.wechsle_szene(MeldungScene(app, "📖 Das Ende deiner Geschichte", ende_text, "Zum Titelbildschirm", lambda: app.wechsle_szene(TitleScene(app)), "titel"))
