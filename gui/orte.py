@@ -30,7 +30,6 @@ from game.locations import (
     _rangaufstieg_pruefung,
     _taverne_ausruhen,
     _taverne_geruecht,
-    _taverne_gruppenangebot,
     _taverne_trinkspiel,
     _tempel_priester,
     _tempel_segen,
@@ -91,7 +90,9 @@ def optionen_taverne(charakter) -> list[tuple[str, Aktion]]:
         ("An einem Trinkspiel teilnehmen", lambda: _taverne_trinkspiel(charakter, taverne)),
     ]
     if len(charakter.begleiter) < 3:
-        opts.append(("Nach Mitstreitern für die Gruppe Ausschau halten", lambda: _taverne_gruppenangebot(charakter)))
+        # Dieselbe Rekrutierungs-Auswahl wie im eigenständigen Gruppen-Bildschirm
+        # (siehe _gruppe_rekruten_submenu) statt eines eigenen, abweichenden Zufallsangebots.
+        opts.append(("Nach Mitstreitern für die Gruppe Ausschau halten", lambda: _gruppe_rekruten_submenu(charakter)))
     return opts
 
 

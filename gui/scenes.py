@@ -95,6 +95,8 @@ class TitleScene(Szene):
         self.neues_spiel_button.draw(surface)
         self.fortsetzen_button.draw(surface)
         self.beenden_button.draw(surface)
+        hinweis = theme.font(14).render("F11 = Vollbild an/aus", True, theme.FARBEN["text_dim"])
+        surface.blit(hinweis, (theme.BREITE - hinweis.get_width() - 20, theme.HOEHE - 32))
 
 
 class CharErstellungScene(Szene):
@@ -190,13 +192,20 @@ class HubScene(Szene):
         self.buttons = []
         start_y = 240
         breite = 760
-        hoehe = 62
         abstand = 14
+        anzahl = len(self.ort_ids)
+        # Feste 62px-Buttons würden bei vielen Orten (Adelsviertel erst ab
+        # Ruf 20+, plus die immer vorhandenen Inventar-/Gruppe-Einträge) unten
+        # aus dem Fenster laufen - die Höhe passt sich daher an den
+        # verfügbaren Platz an, statt Buttons abzuschneiden.
+        verfuegbar = theme.HOEHE - start_y - 30
+        hoehe = min(62, max(40, (verfuegbar - (anzahl - 1) * abstand) // max(1, anzahl)))
         x = (theme.BREITE - breite) // 2
         for i, ort_id in enumerate(self.ort_ids):
             ort = locations_module.ORTE[ort_id]
             rect = (x, start_y + i * (hoehe + abstand), breite, hoehe)
-            self.buttons.append(Button(rect, f"{ort.icon}  {ort.name}", groesse=23, subtitle=orte.ORT_BESCHREIBUNGEN[ort_id], subtitle_groesse=14))
+            untertitel_groesse = 14 if hoehe >= 55 else 12
+            self.buttons.append(Button(rect, f"{ort.icon}  {ort.name}", groesse=23 if hoehe >= 55 else 19, subtitle=orte.ORT_BESCHREIBUNGEN[ort_id], subtitle_groesse=untertitel_groesse))
 
     def handle_event(self, event):
         for i, button in enumerate(self.buttons):
@@ -312,7 +321,11 @@ class KampfScene(Szene):
         self.ort_id = ort_id
         self.scroll = 0
         self._auto_scroll = True
-        self._textrect = pygame.Rect(80, 310 + max(0, len(self.kampf.gegner_lebend()) - 1) * 26, theme.BREITE - 160, 0)
+        # Die Logzeile muss unterhalb sowohl der Gegner-HP-Balken (mittig) als
+        # auch der Begleiter-HP-Balken (links) beginnen - je nachdem, welche
+        # der beiden Spalten mehr Zeilen braucht.
+        zeilen = max(len(self.kampf.gegner_lebend()), len(self.charakter.begleiter), 1)
+        self._textrect = pygame.Rect(80, 310 + max(0, zeilen - 1) * 34, theme.BREITE - 160, 0)
         self._textrect.height = theme.HOEHE - 170 - self._textrect.y
         # Zwei-Schritt-Ablauf: erst Fähigkeit wählen, danach - falls nötig -
         # ein Ziel (Gegner oder Verbündeter). self.gewaehlte_aktion ist nur
@@ -394,9 +407,23 @@ class KampfScene(Szene):
         self.kampf.runde_ausfuehren(aktion, gegner_ziel=gegner_ziel, verbuendeter_ziel=verbuendeter_ziel)
         self._auto_scroll = True
         if self.kampf.beendet:
-            folge = self.kampfstart.bei_abschluss(self.kampf.ergebnis())
+            ergebnis = self.kampf.ergebnis()
+            folge = self.kampfstart.bei_abschluss(ergebnis)
             if isinstance(folge, Kampfstart):
-                self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.ort_titel, folge, self.ort_id))
+                # Ein Dungeon/eine Quest besteht oft aus mehreren Kämpfen in
+                # Folge - statt nahtlos in den nächsten Kampf zu wechseln
+                # (was sich wie ein automatisches Durchspielen anfühlt),
+                # zeigt eine kurze Zwischenmeldung das Ergebnis dieses Kampfes
+                # und wartet auf einen bewussten "Weiter"-Klick.
+                titel = f"✅ {ergebnis.gegner} besiegt!" if ergebnis.sieg else f"⚠️ Rückzug vor {ergebnis.gegner}"
+                naechster_kampfstart = folge
+
+                def weiter_zum_naechsten_kampf():
+                    self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.ort_titel, naechster_kampfstart, self.ort_id))
+
+                self.app.wechsle_szene(
+                    MeldungScene(self.app, titel, "\n".join(ergebnis.log), "Weiter zum nächsten Gegner", weiter_zum_naechsten_kampf, self.ort_id)
+                )
             else:
                 _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.ort_titel, folge, self.ort_id)
         else:
@@ -418,6 +445,19 @@ class KampfScene(Szene):
             balken_rect = pygame.Rect(theme.BREITE // 2 - 200, y + 18, 400, 12)
             widgets.balken(surface, balken_rect, gegner.hp / max(1, gegner.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
             y += 34
+
+        # Begleiter-HP links neben den Gegnern - die Statusleiste oben zeigt
+        # sie nur als schmale Textzeile, im Kampf selbst braucht man echte
+        # Balken, um Heil-/Schutzentscheidungen treffen zu können.
+        by = 236
+        for begleiter in self.charakter.begleiter:
+            ko = begleiter.niedergeschlagen
+            zustand = " [K.O.]" if ko else ""
+            beg_text = theme.font(15).render(f"{begleiter.name} ({begleiter.rolle}): {begleiter.hp_aktuell}/{begleiter.hp_max} HP{zustand}", True, theme.FARBEN["text_dim"] if ko else theme.FARBEN["text"])
+            surface.blit(beg_text, (80, by))
+            balken_rect = pygame.Rect(80, by + 18, 260, 12)
+            widgets.balken(surface, balken_rect, begleiter.hp_aktuell / max(1, begleiter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+            by += 34
 
         widgets.panel(surface, self._textrect)
         innen = self._textrect.inflate(-30, -30)

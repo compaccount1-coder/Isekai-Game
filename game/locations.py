@@ -10,7 +10,6 @@ from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import AUFSTIEGSPFADE, skill_ist_aoe, skill_ist_signatur
 from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten
 from game.companions import (
-    generiere_begleiter,
     generiere_rekruten,
     gruppen_rollen,
     ist_ausgewogene_gruppe,
@@ -205,31 +204,6 @@ def _taverne_trinkspiel(charakter: Charakter, taverne: str) -> Ereignis:
         return Ereignis(text=text, gold=-einsatz)
 
 
-def _taverne_gruppenangebot(charakter: Charakter) -> Ereignis:
-    if len(charakter.begleiter) >= 3:
-        text = f"🍺 Die Gruppe ist bereits voll - {charakter.name} genießt einfach den Abend."
-        return Ereignis(text=text, xp=int(5 * charakter.level))
-
-    vorhandene_rollen = gruppen_rollen(charakter.begleiter)
-    neuer = generiere_begleiter(vorhandene_rollen)
-    beitritt_chance = 0.7
-    if "loyal bis zum Ende" in charakter.persoenlichkeit or "gütig" in charakter.persoenlichkeit:
-        beitritt_chance += 0.15
-
-    if random.random() < beitritt_chance:
-        charakter.begleiter_aufnehmen(neuer)
-        text = (
-            f"🍺 {charakter.name} hält Ausschau nach Mitstreitern und trifft auf {neuer.anzeige()}. "
-            f"Nach ein paar Runden Bier ist die Sache besiegelt: {neuer.name} schließt sich der Gruppe an!"
-        )
-        if ist_ausgewogene_gruppe(charakter.begleiter):
-            text += " Die Gruppe ist damit endlich ausgewogen - Nahkampf, Fernkampf und Unterstützung vereint."
-        return Ereignis(text=text, xp=int(15 * charakter.level), ist_wichtig=True)
-    else:
-        text = f"🍺 {charakter.name} trifft auf {neuer.anzeige()} - doch man wird sich heute nicht einig."
-        return Ereignis(text=text)
-
-
 def besuche_taverne(charakter: Charakter) -> Ereignis:
     taverne = random.choice(TAVERNEN_NAMEN)
 
@@ -252,7 +226,9 @@ def besuche_taverne(charakter: Charakter) -> Ereignis:
     elif idx == 2:
         return _taverne_trinkspiel(charakter, taverne)
     else:
-        return _taverne_gruppenangebot(charakter)
+        # Dieselbe Rekrutierungs-Auswahl wie im eigenständigen Gruppen-Bildschirm
+        # (siehe _gruppe_anheuern) statt eines eigenen, abweichenden Zufallsangebots.
+        return _gruppe_anheuern(charakter)
 
 
 # ---------------------------------------------------------------------------
