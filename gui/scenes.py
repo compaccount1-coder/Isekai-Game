@@ -242,14 +242,21 @@ class OrtScene(Szene):
 
     def _baue_buttons(self):
         self.buttons = []
-        start_y = 230
+        y = 230
         breite = 820
-        hoehe = 54
+        hoehe_min = 54
         abstand = 12
         x = (theme.BREITE - breite) // 2
-        for i, (label, _) in enumerate(self.optionen):
-            rect = (x, start_y + i * (hoehe + abstand), breite, hoehe)
+        font = theme.font(19)
+        for label, _ in self.optionen:
+            # Lange Beschreibungen (z.B. Quest-Einträge) brauchen mehr als
+            # eine Zeile - die Button-Höhe richtet sich danach, damit der
+            # Text nicht über den Rand hinaus clippt.
+            zeilen = widgets.zeilenumbruch(label, font, breite - 24)
+            hoehe = max(hoehe_min, len(zeilen) * font.get_linesize() + 16)
+            rect = (x, y, breite, hoehe)
             self.buttons.append(Button(rect, label, groesse=19))
+            y += hoehe + abstand
         if self.zurueck:
             self.zurueck_button = Button((40, theme.HOEHE - 76, 160, 46), "◀ Zurück", groesse=19)
 

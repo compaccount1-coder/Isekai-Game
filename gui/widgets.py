@@ -37,9 +37,19 @@ class Button:
 
         text_farbe = theme.FARBEN["text"] if self.enabled else theme.FARBEN["text_dim"]
         mitte_y = self.rect.centery - (10 if self.subtitle else 0)
-        label = self.font.render(self.text, True, text_farbe)
-        label_rect = label.get_rect(center=(self.rect.centerx, mitte_y))
-        surface.blit(label, label_rect)
+        # Lange Texte (z.B. ausführliche Quest-Beschreibungen) würden als eine
+        # Zeile seitlich über den Button hinauslaufen - stattdessen auf so
+        # viele Zeilen umbrechen, wie innerhalb der Button-Breite passen, und
+        # als Block vertikal zentriert darstellen.
+        max_breite = self.rect.width - 24
+        zeilen = zeilenumbruch(self.text, self.font, max_breite) if self.font.size(self.text)[0] > max_breite else [self.text]
+        zeilenhoehe = self.font.get_linesize()
+        block_hoehe = zeilenhoehe * len(zeilen)
+        start_y = mitte_y - block_hoehe // 2
+        for i, zeile in enumerate(zeilen):
+            label = self.font.render(zeile, True, text_farbe)
+            label_rect = label.get_rect(center=(self.rect.centerx, start_y + zeilenhoehe * i + zeilenhoehe // 2))
+            surface.blit(label, label_rect)
 
         if self.subtitle:
             sub = self.subtitle_font.render(self.subtitle, True, theme.FARBEN["text_dim"])

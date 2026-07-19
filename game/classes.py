@@ -188,6 +188,7 @@ KLASSEN: dict[str, Klasse] = {
         stat_gewichte={"STR": 0.3, "DEX": 0.7, "INT": 0.8, "WIS": 1.3, "CON": 0.7, "CHA": 1.8},
         skills=[
             Skill("Kampflied", "Stärkt den Mut und die Kraft aller Verbündeten."),
+            Skill("Schneidender Missklang", "Ein disharmonischer Ton, der das Gehör der Feinde schmerzhaft attackiert."),
             Skill("Schlaflied", "Versetzt Feinde in einen tiefen, unnatürlichen Schlaf."),
             Skill("Spott", "Lenkt die Aufmerksamkeit aller Feinde auf dich."),
             Skill("Heldenepos", "Erzählt eine Legende, die deine Gruppe über sich hinauswachsen lässt."),
@@ -251,11 +252,11 @@ KLASSEN: dict[str, Klasse] = {
         stat_gewichte={"STR": 0.3, "DEX": 0.5, "INT": 0.7, "WIS": 1.7, "CON": 0.9, "CHA": 1.2},
         skills=[
             Skill("Heilendes Licht", "Schließt Wunden von dir oder einem Verbündeten."),
-            Skill("Gruppensegen", "Stärkt die gesamte Gruppe für die kommende Schlacht."),
+            Skill("Göttlicher Zorn", "Ein offensiver Ausbruch heiliger Energie gegen einen Feind."),
             Skill("Schutzaura", "Ein Feld heiligen Lichts absorbiert eingehenden Schaden."),
             Skill("Wiederbelebung", "Ruft einen gefallenen Verbündeten zurück ins Leben."),
             Skill("Bannfluch", "Entfernt schädliche Magie von dir oder Verbündeten."),
-            Skill("Göttlicher Zorn", "Ein seltener offensiver Ausbruch heiliger Energie."),
+            Skill("Gruppensegen", "Stärkt die gesamte Gruppe für die kommende Schlacht."),
             Skill("Läuterndes Feuer", "Heiliges Feuer, das Untote und Dämonen besonders hart trifft."),
             Skill("Segen der Standhaftigkeit", "Schützt die Gruppe davor, von einem einzelnen Treffer niedergestreckt zu werden."),
             Skill("Wort der Genesung", "Ein Gebet, das die gesamte Gruppe auf einmal von ihren Wunden befreit."),
@@ -273,9 +274,9 @@ KLASSEN: dict[str, Klasse] = {
         stat_gewichte={"STR": 0.4, "DEX": 0.8, "INT": 1.6, "WIS": 1.1, "CON": 0.7, "CHA": 0.7},
         skills=[
             Skill("Heiltrank werfen", "Wirft einen Trank, der Verbündete sofort heilt."),
-            Skill("Stärkungselixier", "Verleiht der Gruppe vorübergehend erhöhte Kraft."),
-            Skill("Regenerationstrank", "Ein Sud aus heilenden Kräutern, der Wunden zuverlässig schließt."),
             Skill("Giftnebel", "Eine Wolke aus Toxinen schwächt alle Feinde in der Nähe."),
+            Skill("Regenerationstrank", "Ein Sud aus heilenden Kräutern, der Wunden zuverlässig schließt."),
+            Skill("Stärkungselixier", "Verleiht der Gruppe vorübergehend erhöhte Kraft."),
             Skill("Explosive Mischung", "Eine instabile Verbindung mit beachtlicher Wirkung."),
             Skill("Verwandlungstrank", "Verändert vorübergehend Eigenschaften von dir oder Verbündeten."),
             Skill("Elixier der letzten Stunde", "Ein Notfalltrank, der selbst Sterbende stabilisiert."),
