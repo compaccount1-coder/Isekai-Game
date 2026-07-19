@@ -12,7 +12,12 @@ gewürfelten Skill."""
 import random
 from dataclasses import dataclass, field
 
-from game.classes import KLASSEN, skill_dauer, skill_effekt, skill_ist_aoe
+from game.classes import KLASSEN, skill_dauer, skill_effekt, skill_ist_aoe, skill_ist_signatur
+
+# Signatur-Fähigkeiten (siehe classes.SKILL_SIGNATUR) wirken deutlich stärker
+# als reguläre Fähigkeiten - sie sind der exklusive Höhepunkt der jeweiligen
+# Aufstiegsklasse und dafür auf einmal pro Kampf begrenzt (siehe Kampf.signatur_verwendet).
+SIGNATUR_VERSTAERKUNG = 1.8
 
 GEGNER_NAMEN_SCHWACH = [
     "Wilder Wolf", "Riesenspinne", "Wegelagerer", "Verrotteter Zombie", "Kobold-Plünderer",
@@ -286,6 +291,9 @@ class Kampf:
         # Reflexion: ein Teil des erlittenen Schadens geht an den Angreifer zurück.
         self.reflexion_runden = 0
         self.reflexion_staerke = 0.0
+        # Signatur-Fähigkeiten, die in diesem Kampf bereits eingesetzt wurden -
+        # jede darf nur einmal pro Kampf gewirkt werden.
+        self.signatur_verwendet: set[str] = set()
 
     def gegner_lebend(self) -> list[Kampfgegner]:
         return [g for g in self.gegnergruppe if g.hp > 0]
@@ -296,10 +304,13 @@ class Kampf:
         return [self.charakter] + [b for b in self.charakter.begleiter if not b.niedergeschlagen]
 
     def verfuegbare_aktionen(self) -> list[str]:
-        """Die Fähigkeiten, aus denen der Spieler diese Runde wählen kann."""
+        """Die Fähigkeiten, aus denen der Spieler diese Runde wählen kann.
+        Eine bereits in diesem Kampf verbrauchte Signatur-Fähigkeit
+        verschwindet für den Rest des Kampfes aus der Auswahl."""
         if not self.charakter.gelernte_skills:
             return ["Angriff"]
-        return list(self.charakter.gelernte_skills.keys())
+        verfuegbar = [name for name in self.charakter.gelernte_skills if name not in self.signatur_verwendet]
+        return verfuegbar or ["Angriff"]
 
     def ziel_typ(self, aktion: str) -> str | None:
         """Gibt zurück, welche Zielauswahl vor dem Einsatz einer Fähigkeit
@@ -336,6 +347,20 @@ class Kampf:
             gewaehlte_aktion = "Angriff"
             skill_level = 0
 
+        # Signatur-Fähigkeiten sind auf einmal pro Kampf begrenzt - wurde sie
+        # bereits gewirkt, weicht der Charakter automatisch auf einen
+        # regulären Angriff aus, statt sie erneut (und damit ohne die
+        # gewünschte Exklusivität) einzusetzen.
+        ist_signatur = gewaehlte_aktion != "Angriff" and skill_ist_signatur(gewaehlte_aktion)
+        if ist_signatur and gewaehlte_aktion in self.signatur_verwendet:
+            gewaehlte_aktion = "Angriff"
+            skill_level = 0
+            ist_signatur = False
+        elif ist_signatur:
+            self.signatur_verwendet.add(gewaehlte_aktion)
+            zeilen.append(f"   🌟 {charakter.name} entfesselt die Signatur-Fähigkeit {gewaehlte_aktion}!")
+        signatur_mult = SIGNATUR_VERSTAERKUNG if ist_signatur else 1.0
+
         effekt = skill_effekt(gewaehlte_aktion) if gewaehlte_aktion != "Angriff" else "schaden"
         aoe = gewaehlte_aktion != "Angriff" and skill_ist_aoe(gewaehlte_aktion)
         kampfkraft_basis = charakter.kampfkraft_basis()
@@ -353,7 +378,7 @@ class Kampf:
             mehrfach_faktor = 0.55 if len(ziele) > 1 else 1.0
             aktionsname = "greift an" if gewaehlte_aktion == "Angriff" else f"setzt {gewaehlte_aktion} ein"
             for ziel in ziele:
-                schaden = int(kampfkraft_basis * random.uniform(0.22, 0.32) * (1 + skill_level * 0.06) * bonus * mehrfach_faktor)
+                schaden = int(kampfkraft_basis * random.uniform(0.22, 0.32) * (1 + skill_level * 0.06) * bonus * mehrfach_faktor * signatur_mult)
                 kritisch = random.random() < 0.12
                 if kritisch:
                     schaden = int(schaden * 1.6)
@@ -374,7 +399,7 @@ class Kampf:
         elif effekt == "gruppenheilung":
             gesamt = 0
             for ziel in self.verbuendete_lebend():
-                gesamt += ziel.heilen(max(1, int(ziel.hp_max * (0.18 + skill_level * 0.015))))
+                gesamt += ziel.heilen(max(1, int(ziel.hp_max * (0.18 + skill_level * 0.015) * signatur_mult)))
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt die gesamte Gruppe (insgesamt {gesamt} HP).")
         elif effekt == "buff":
             ziel = verbuendeter_ziel if verbuendeter_ziel is not None else charakter
@@ -392,12 +417,12 @@ class Kampf:
         elif effekt == "gruppenschild":
             dauer = skill_dauer(gewaehlte_aktion)
             self.schild_runden = max(self.schild_runden, dauer)
-            self.schild_staerke = max(self.schild_staerke, 0.25 + skill_level * 0.015)
+            self.schild_staerke = max(self.schild_staerke, (0.25 + skill_level * 0.015) * signatur_mult)
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und schützt die gesamte Gruppe für {dauer} Runden.")
         elif effekt == "reflexion":
             dauer = skill_dauer(gewaehlte_aktion)
             self.reflexion_runden = max(self.reflexion_runden, dauer)
-            self.reflexion_staerke = max(self.reflexion_staerke, 0.3 + skill_level * 0.02)
+            self.reflexion_staerke = max(self.reflexion_staerke, (0.3 + skill_level * 0.02) * signatur_mult)
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein - Treffer werden für {dauer} Runden an die Angreifer zurückgeworfen.")
         elif effekt == "debuff":
             lebend = self.gegner_lebend()

@@ -3,7 +3,7 @@
 import random
 from dataclasses import dataclass, field
 
-from game.classes import AUFSTIEGSPFADE, KLASSEN, Klasse
+from game.classes import AUFSTIEGSPFADE, KLASSEN, Klasse, skill_ist_signatur
 from game.companions import Begleiter
 from game.items import Item, Trank, generiere_item, generiere_trank, schmiede_upgrade
 
@@ -224,8 +224,16 @@ class Charakter:
             if self.level >= mindestlevel:
                 verfuegbar.append(skill)
 
-        if self.spezialisierung == "Alternative" and self.klasse_id in AUFSTIEGSPFADE and self.level >= 30:
-            verfuegbar += [s for s in AUFSTIEGSPFADE[self.klasse_id]["skills"] if s.name not in self.gelernte_skills]
+        if self.spezialisierung == "Alternative" and self.klasse_id in AUFSTIEGSPFADE:
+            for s in AUFSTIEGSPFADE[self.klasse_id]["skills"]:
+                if s.name in self.gelernte_skills:
+                    continue
+                # Signatur-Fähigkeiten sind der Höhepunkt des Aufstiegspfads
+                # und bleiben bis Level 70 verschlossen, alle anderen
+                # Pfad-Fähigkeiten schon ab Level 30 (siehe klasse_hat_aufstieg).
+                pfad_mindestlevel = 70 if skill_ist_signatur(s.name) else 30
+                if self.level >= pfad_mindestlevel:
+                    verfuegbar.append(s)
 
         if not verfuegbar:
             return None

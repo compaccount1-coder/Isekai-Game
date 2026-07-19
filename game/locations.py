@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
-from game.classes import AUFSTIEGSPFADE, skill_ist_aoe
+from game.classes import AUFSTIEGSPFADE, skill_ist_aoe, skill_ist_signatur
 from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten
 from game.companions import (
     generiere_begleiter,
@@ -733,11 +733,12 @@ def _kampf_runde_anzeigen(kampf) -> None:
     texte = []
     for aktion in aktionen:
         aoe_hinweis = " [Alle Gegner]" if aktion != "Angriff" and skill_ist_aoe(aktion) else ""
+        signatur_hinweis = " ⭐[Signatur, 1x/Kampf]" if aktion != "Angriff" and skill_ist_signatur(aktion) else ""
         if aktion == "Angriff":
             texte.append("Angriff (Grundangriff)")
         else:
             skill = charakter.gelernte_skills[aktion]
-            texte.append(f"{aktion} (Lv.{skill.level}){aoe_hinweis}")
+            texte.append(f"{aktion} (Lv.{skill.level}){aoe_hinweis}{signatur_hinweis}")
 
     gegner_status = "  |  ".join(f"{g.name}: {g.hp}/{g.hp_max} HP" for g in kampf.gegner_lebend())
     titel = f"⚔️ Runde {kampf.runde + 1} - {charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP  |  {gegner_status}"

@@ -9,7 +9,7 @@ from game import locations as locations_module
 from game import savegame
 from gui import hintergruende, orte, spiellauf, theme, widgets
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
-from game.classes import KLASSEN, skill_ist_aoe
+from game.classes import KLASSEN, skill_ist_aoe, skill_ist_signatur
 from game.combat import Kampfstart
 from game.story import ISEKAI_INTROS, PERSOENLICHKEITEN, erzeuge_ende
 from game.world import generiere_welt
@@ -334,7 +334,8 @@ class KampfScene(Szene):
             else:
                 lvl = self.charakter.gelernte_skills[aktion].level
                 aoe = " [Alle Gegner]" if skill_ist_aoe(aktion) else ""
-                label = f"{aktion} (Lv.{lvl}){aoe}"
+                signatur = " ⭐Signatur" if skill_ist_signatur(aktion) else ""
+                label = f"{aktion} (Lv.{lvl}){aoe}{signatur}"
             self.aktions_buttons.append((aktion, Button(rect, label, groesse=17)))
 
     def _baue_zielbuttons(self, aktion: str, ziel_typ: str):

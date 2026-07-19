@@ -310,6 +310,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
             Skill("Letzte Bastion", "Du stehst noch, wo andere längst gefallen wären - schützt die gesamte Gruppe über mehrere Runden."),
             Skill("Dornenpanzer", "Ein gepanzerter Schild, der eingehende Schläge an den Angreifer zurückwirft."),
+            Skill("Unbezwingbare Mauer", "Signatur-Fähigkeit des Bollwerks: für mehrere Runden wird jeder Treffer, den du erleidest, verstärkt an den Angreifer zurückgeworfen - einmal pro Kampf."),
         ],
     },
     "paladin": {
@@ -321,6 +322,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
             Skill("Märtyrergelübde", "Du erträgst, was eigentlich deine Verbündeten treffen sollte - schützt die gesamte Gruppe über mehrere Runden."),
             Skill("Vergeltungsschild", "Ein Schild aus heiligem Zorn, das erlittene Schläge an den Angreifer zurückgibt."),
+            Skill("Licht der letzten Hoffnung", "Signatur-Fähigkeit des Schildwächters: ein gleißender Lichtstoß heilt die gesamte Gruppe mit göttlicher Kraft - einmal pro Kampf."),
         ],
     },
     "moench": {
@@ -332,6 +334,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
             Skill("Unbeugsamer Atem", "Du sammelst dich, wo andere zusammenbrechen würden - schützt die gesamte Gruppe über mehrere Runden."),
             Skill("Konterhaltung", "Eine Kampfhaltung, die jeden Treffer sofort mit gleicher Härte erwidert."),
+            Skill("Schlag des unbeweglichen Berges", "Signatur-Fähigkeit des Berges: ein einzelner, vollkommener Schlag mit verheerender Wucht - einmal pro Kampf."),
         ],
     },
     "nekromant": {
@@ -342,6 +345,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Verwesungswolke", "Eine Wolke aus reinem Verfall, die alle Feinde zugleich schädigt und schwächt."),
             Skill("Knochensplitterhagel", "Ein Schauer scharfkantiger Knochensplitter, der jeden Gegner auf dem Feld trifft."),
             Skill("Todesfluch", "Ein Fluch, der die Lebenskraft eines einzelnen Feindes drastisch untergräbt."),
+            Skill("Große Pest", "Signatur-Fähigkeit des Seuchenfürsten: eine Seuche biblischen Ausmaßes befällt und zersetzt alle Feinde zugleich - einmal pro Kampf."),
         ],
     },
     "magier": {
@@ -352,6 +356,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Manabarriere", "Ein arkanes Schutzfeld, das eingehenden Schaden erheblich mindert."),
             Skill("Arkaner Gegenschlag", "Reflektiert einen Teil erlittenen Schadens für mehrere Runden zurück."),
             Skill("Kraftentladung", "Ein gebündelter Schlag arkaner Energie mit verheerender Wirkung auf ein einzelnes Ziel."),
+            Skill("Arkane Singularität", "Signatur-Fähigkeit des Kriegsmagiers: du reißt die Realität selbst auf und entfesselst konzentrierte Vernichtung auf ein einzelnes Ziel - einmal pro Kampf."),
         ],
     },
     "assassine": {
@@ -362,6 +367,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Nervengift", "Ein lähmendes Gift, das die Kampfkraft eines Gegners drastisch untergräbt."),
             Skill("Giftwolke", "Ein zerstäubtes Toxin, das alle Feinde in Reichweite schwächt und schädigt."),
             Skill("Tödliche Präzision", "Ein Moment absoluter Konzentration, der den nächsten Angriff enorm verstärkt."),
+            Skill("Tödlicher Schwarm", "Signatur-Fähigkeit des Giftmeisters: du entfesselst dein tödlichstes Gemisch, das alle Feinde zugleich vergiftet und schädigt - einmal pro Kampf."),
         ],
     },
     "beschwoerer": {
@@ -372,6 +378,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Schutzgeist beschwören", "Ein gebundener Geist schirmt die gesamte Gruppe über mehrere Runden ab."),
             Skill("Bindende Fessel", "Geisterhafte Ketten binden und schwächen alle gegnerischen Kämpfer zugleich."),
             Skill("Geisterheilung", "Wohlwollende Geister schließen die Wunden der gesamten Gruppe auf einmal."),
+            Skill("Legion der Wächtergeister", "Signatur-Fähigkeit des Paktwächters: eine ganze Legion gebundener Geister umschließt die Gruppe für mehrere Runden mit undurchdringlichem Schutz - einmal pro Kampf."),
         ],
     },
     "barde": {
@@ -382,6 +389,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Kriegshymne", "Ein mitreißender Gesang, der den nächsten Angriff der Gruppe erheblich verstärkt."),
             Skill("Zerreißender Akkord", "Eine Welle reiner Klangenergie, die alle Feinde gleichzeitig trifft."),
             Skill("Lied der Verzweiflung", "Ein bedrückender Klang, der die Kampfkraft aller Feinde zugleich untergräbt."),
+            Skill("Sinfonie der Vernichtung", "Signatur-Fähigkeit des Kriegssängers: der letzte, gewaltigste Akkord deines Liedes zerreißt alle Feinde zugleich - einmal pro Kampf."),
         ],
     },
     "waldlaeufer": {
@@ -392,6 +400,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Splitterpfeil", "Ein Pfeil, der beim Einschlag in Splitter zerbricht und alle nahen Feinde trifft."),
             Skill("Fallennetz", "Ein Netz aus Fallen, das mehrere Feinde zugleich fesselt und schwächt."),
             Skill("Deckungsfeuer", "Ein Schauer aus Pfeilen, der eingehende Angriffe auf die Gruppe abschwächt."),
+            Skill("Pfeilsturm des Jahrhunderts", "Signatur-Fähigkeit des Plänklermeisters: ein Sturm aus hunderten Pfeilen verdunkelt den Himmel und trifft jeden Feind zugleich - einmal pro Kampf."),
         ],
     },
     "kleriker": {
@@ -402,6 +411,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Richtender Blitz", "Ein Blitz göttlichen Zorns, der einen einzelnen Feind mit voller Wucht trifft."),
             Skill("Feuersturm des Glaubens", "Heiliges Feuer, das alle Feinde auf dem Schlachtfeld zugleich verzehrt."),
             Skill("Rüstung des Gerechten", "Ein Segen, der eingehenden Schaden für die gesamte Gruppe spürbar mindert."),
+            Skill("Gerechtes Urteil", "Signatur-Fähigkeit des Kriegspriesters: du fällst göttliches Urteil über einen einzelnen Feind, dem nichts standhält - einmal pro Kampf."),
         ],
     },
     "alchemist": {
@@ -412,6 +422,7 @@ AUFSTIEGSPFADE: dict[str, dict] = {
             Skill("Feuerbombe", "Eine Bombe aus Alchemistenfeuer, die alle Feinde in der Nähe verbrennt."),
             Skill("Zersetzungsgas", "Ein ätzendes Gas, das alle Feinde zugleich schädigt und schwächt."),
             Skill("Überladener Trank", "Ein instabiles Gebräu, das den nächsten Angriff drastisch verstärkt."),
+            Skill("Totale Verwüstung", "Signatur-Fähigkeit des Sprengmeisters: deine instabilste, gewaltigste Mischung reißt das gesamte Schlachtfeld in Schutt - einmal pro Kampf."),
         ],
     },
 }
@@ -519,6 +530,20 @@ SKILL_EFFEKT: dict[str, str] = {
     "Tödliche Präzision": "buff",
     "Kriegshymne": "buff",
     "Überladener Trank": "buff",
+
+    # --- Signatur-Fähigkeiten (nur die jeweilige Aufstiegsklasse, ab Level 70,
+    # einmal pro Kampf, siehe SKILL_SIGNATUR) ---
+    "Unbezwingbare Mauer": "reflexion",
+    "Licht der letzten Hoffnung": "gruppenheilung",
+    "Schlag des unbeweglichen Berges": "schaden",
+    "Große Pest": "schaden_debuff",
+    "Arkane Singularität": "schaden",
+    "Tödlicher Schwarm": "schaden_debuff",
+    "Legion der Wächtergeister": "gruppenschild",
+    "Sinfonie der Vernichtung": "schaden",
+    "Pfeilsturm des Jahrhunderts": "schaden",
+    "Gerechtes Urteil": "schaden",
+    "Totale Verwüstung": "schaden",
 }
 
 # Skills, die alle Gegner gleichzeitig treffen statt nur einen einzelnen -
@@ -530,6 +555,9 @@ SKILL_AOE: set[str] = {
     "Verwesungswolke", "Knochensplitterhagel", "Giftwolke", "Bindende Fessel",
     "Zerreißender Akkord", "Lied der Verzweiflung", "Splitterpfeil", "Fallennetz",
     "Feuersturm des Glaubens", "Feuerbombe", "Zersetzungsgas",
+    # Signatur-Fähigkeiten mit Flächenwirkung
+    "Große Pest", "Tödlicher Schwarm", "Sinfonie der Vernichtung",
+    "Pfeilsturm des Jahrhunderts", "Totale Verwüstung",
 }
 
 # Wie viele Kampfrunden ein Effekt anhält (nicht gelistete Skills wirken nur
@@ -547,6 +575,23 @@ SKILL_DAUER: dict[str, int] = {
     "Deckungsfeuer": 3,
     "Schutzgeist beschwören": 3,
     "Arkaner Gegenschlag": 3,
+    # Signatur-Fähigkeiten mit Mehrrunden-Wirkung halten spürbar länger als
+    # ihre regulären Pfad-Geschwister - schließlich sind sie der Höhepunkt.
+    "Unbezwingbare Mauer": 4,
+    "Legion der Wächtergeister": 4,
+}
+
+# Signatur-Fähigkeiten: der Höhepunkt jeder Aufstiegsklasse. Sie werden erst
+# ab Level 70 erlernbar (siehe Charakter._eventuell_neuen_skill_lernen), sind
+# ausschließlich über den jeweiligen Aufstiegspfad erlernbar - keine andere
+# Klasse und kein Begleiter kann sie je nutzen - und wirken deutlich stärker
+# als reguläre Fähigkeiten (siehe SIGNATUR_VERSTAERKUNG in game/combat.py).
+# Genau deshalb sind sie zusätzlich auf einmal pro Kampf begrenzt.
+SKILL_SIGNATUR: set[str] = {
+    "Unbezwingbare Mauer", "Licht der letzten Hoffnung", "Schlag des unbeweglichen Berges",
+    "Große Pest", "Arkane Singularität", "Tödlicher Schwarm", "Legion der Wächtergeister",
+    "Sinfonie der Vernichtung", "Pfeilsturm des Jahrhunderts", "Gerechtes Urteil",
+    "Totale Verwüstung",
 }
 
 
@@ -560,3 +605,7 @@ def skill_ist_aoe(skill_name: str) -> bool:
 
 def skill_dauer(skill_name: str) -> int:
     return SKILL_DAUER.get(skill_name, 1)
+
+
+def skill_ist_signatur(skill_name: str) -> bool:
+    return skill_name in SKILL_SIGNATUR
