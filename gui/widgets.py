@@ -76,7 +76,10 @@ class TextEingabe:
         anzeige = self.text if self.text else self.placeholder
         farbe = theme.FARBEN["text"] if self.text else theme.FARBEN["text_dim"]
         label = self.font.render(anzeige, True, farbe)
+        alter_clip = surface.get_clip()
+        surface.set_clip(self.rect.inflate(-16, -4))
         surface.blit(label, (self.rect.x + 12, self.rect.y + (self.rect.height - label.get_height()) // 2))
+        surface.set_clip(alter_clip)
         if self.text and self._cursor_sichtbar:
             x = self.rect.x + 12 + label.get_width() + 2
             y = self.rect.y + 8

@@ -40,7 +40,7 @@ from game.locations import (
 from game.quests import generiere_quest_brett, quest_abschliessen
 from game.ranks import kann_aufsteigen, naechster_rang
 
-Aktion = Callable[[], "Ereignis | Submenu"]
+Aktion = Callable[[], "Ereignis | Kampfstart | Submenu"]
 
 
 @dataclass
@@ -64,6 +64,8 @@ ORT_BESCHREIBUNGEN = {
 
 
 def hub_orte(charakter) -> list[str]:
+    if charakter.aktionen_uebrig <= 0:
+        return ["taverne"]
     ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
     if charakter.ruf > 20:
         ids.append("adelsviertel")
@@ -76,8 +78,10 @@ def hub_orte(charakter) -> list[str]:
 
 def optionen_taverne(charakter) -> list[tuple[str, Aktion]]:
     taverne = random.choice(TAVERNEN_NAMEN)
+    if charakter.aktionen_uebrig <= 0:
+        return [(f"Schlafen gehen in '{taverne}' (beendet den Tag, HP & MP)", lambda: _taverne_ausruhen(charakter, taverne))]
     opts = [
-        (f"Ausruhen in '{taverne}' (HP & MP)", lambda: _taverne_ausruhen(charakter, taverne)),
+        (f"Schlafen gehen in '{taverne}' (beendet den Tag, HP & MP)", lambda: _taverne_ausruhen(charakter, taverne)),
         ("Gerüchte am Tresen aufschnappen", lambda: _taverne_geruecht(charakter, taverne)),
         ("An einem Trinkspiel teilnehmen", lambda: _taverne_trinkspiel(charakter, taverne)),
     ]
@@ -171,15 +175,8 @@ def optionen_marktplatz(charakter, welt) -> list[tuple[str, Aktion]]:
 
 def _quest_brett_submenu(charakter) -> Submenu:
     quests = generiere_quest_brett(charakter.rang)
-
-    def waehlen(quest):
-        def aktion():
-            _, log, erfolg = quest_abschliessen(charakter, quest)
-            return Ereignis(text=f"📜 {charakter.name} nimmt die Quest an: \"{quest.titel}\"", log=log, ist_wichtig=erfolg)
-        return aktion
-
     opts = [
-        (f"[Rang {q.rang}] {q.titel} ({q.typ}) - {q.belohnung_gold}g, {q.belohnung_xp} XP", waehlen(q))
+        (f"[Rang {q.rang}] {q.titel} ({q.typ}) - {q.belohnung_gold}g, {q.belohnung_xp} XP", lambda q=q: quest_abschliessen(charakter, q))
         for q in quests
     ]
     opts.append(("Keine Quest annehmen", lambda: Ereignis(text=f"{charakter.name} entscheidet sich, heute keine Quest anzunehmen.")))
@@ -188,32 +185,14 @@ def _quest_brett_submenu(charakter) -> Submenu:
 
 def _daemonenjagd_submenu(charakter) -> Submenu:
     if demonenkoenig_verfuegbar(charakter):
-        def konfrontieren():
-            ergebnis = konfrontiere_daemonenkoenig(charakter)
-            if ergebnis.sieg:
-                charakter.daemonenkoenig_besiegt = True
-            return Ereignis(
-                text="👑💀 Die letzte Schlacht beginnt!", log=ergebnis.log,
-                xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, ist_wichtig=True,
-            )
         opts = [
-            (f"👑💀 {charakter.name} und die Gruppe konfrontieren den Dämonenkönig!", konfrontieren),
+            (f"👑💀 {charakter.name} und die Gruppe konfrontieren den Dämonenkönig!", lambda: konfrontiere_daemonenkoenig(charakter)),
             ("Sich noch nicht bereit fühlen", lambda: Ereignis(text=f"{charakter.name} sammelt noch einmal Kraft, bevor die letzte Schlacht beginnt.")),
         ]
         return Submenu("Alle Unterlinge sind gefallen. Der Dämonenkönig selbst erwartet euch.", opts)
 
     fuersten = verbleibende_fuersten(charakter)
-
-    def jagen(ziel):
-        def aktion():
-            ergebnis = jage_daemonenfuersten(charakter, ziel)
-            return Ereignis(
-                text=f"👹 Die Jagd auf {ergebnis.name} beginnt!", log=ergebnis.log,
-                xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, ist_wichtig=ergebnis.sieg,
-            )
-        return aktion
-
-    opts = [(f"{name} - {beschr}", jagen((name, beschr))) for name, beschr in fuersten]
+    opts = [(f"{name} - {beschr}", lambda ziel=(name, beschr): jage_daemonenfuersten(charakter, ziel)) for name, beschr in fuersten]
     opts.append(("Zurückkehren", lambda: Ereignis(text=f"{charakter.name} verschiebt die Jagd auf ein andermal.")))
     besiegt = len(charakter.besiegte_daemonenfuersten)
     return Submenu(f"👹 Dämonenjagd - {besiegt}/{besiegt + len(fuersten)} Unterlinge des Dämonenkönigs gefallen", opts)

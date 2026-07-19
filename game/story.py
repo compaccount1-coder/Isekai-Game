@@ -89,12 +89,6 @@ def erzeuge_ende(charakter: Charakter, welt: Welt, grund: str) -> str:
         else:
             zeilen.append("Eine von unzähligen Geschichten, die diese Welt gesehen hat - doch nicht vergessen.")
 
-    elif grund == "levelcap":
-        zeilen.append(
-            f"⭐ {charakter.name} hat als {charakter.tier.name} die Grenzen sterblicher Macht erreicht - Level 100. "
-            f"Legenden über {'ihn' if random.random() < 0.5 else 'sie'} werden diese Welt für immer prägen."
-        )
-
     else:
         zeilen.append(f"{charakter.name}s Geschichte endet hier, nach {charakter.tage_vergangen} Tagen in dieser Welt.")
 

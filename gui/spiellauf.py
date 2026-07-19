@@ -1,6 +1,7 @@
 """Verbindet ein aufgelöstes Ereignis mit der Tagesabschluss-Logik - das
 GUI-Gegenstück zu main.py's Schleifenkörper (zeige_ereignis + Tagesende)."""
 
+from game.character import MAX_AKTIONEN_PRO_TAG
 from game.storyline import pruefe_meilenstein
 
 
@@ -39,24 +40,19 @@ def verarbeite_ereignis(charakter, ereignis) -> tuple[str, bool]:
     return "\n".join(zeilen), gestorben
 
 
-def tagesende(charakter, welt) -> tuple[str, str | None]:
-    """Tagesabschluss wie in main.py's spiel_starten-Schleife: Story-
-    Meilensteine und Rast. Gibt (Zusatztext, Ende-Grund oder None) zurück."""
+def tagesende(charakter, welt) -> str:
+    """Wird nur aufgerufen, wenn ein Ereignis den Tag beendet hat (Schlafen in
+    der Taverne, siehe Ereignis.beendet_tag) - erhöht den Tageszähler, füllt
+    die täglichen Aktionen wieder auf und prüft Story-Meilensteine. Gibt
+    Zusatztext zurück (kann leer sein)."""
     charakter.tage_vergangen += 1
-    zeilen = []
+    charakter.aktionen_uebrig = MAX_AKTIONEN_PRO_TAG
+    return pruefe_meilenstein(charakter) or ""
 
-    meilenstein_text = pruefe_meilenstein(charakter)
-    if meilenstein_text:
-        zeilen.append(meilenstein_text)
 
-    if charakter.hp_aktuell < charakter.hp_max * 0.4:
-        geheilt, mp_regen = charakter.ausruhen()
-        zeilen.append(f"🛌 {charakter.name} ist erschöpft und rastet. (+{geheilt} HP, +{mp_regen} MP)")
-
-    ende_grund = None
+def pruefe_spielende(charakter) -> str | None:
+    """Das Level-Cap beendet das Spiel bewusst NICHT mehr - einzig der Sieg
+    über den Dämonenkönig (oder der Tod) beenden die Geschichte."""
     if charakter.daemonenkoenig_besiegt:
-        ende_grund = "daemonenkoenig"
-    elif charakter.level >= 100:
-        ende_grund = "levelcap"
-
-    return "\n\n".join(z for z in zeilen if z), ende_grund
+        return "daemonenkoenig"
+    return None

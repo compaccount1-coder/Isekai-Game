@@ -10,7 +10,7 @@ neuen Verlauf.
 import random
 import sys
 
-from game.character import Charakter
+from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.locations import EingabeErschoepft, besuche_ort
 from game.story import erstelle_charakter, erzeuge_ende
 from game.storyline import pruefe_meilenstein
@@ -72,12 +72,6 @@ def zeige_ereignis(ereignis, charakter: Charakter):
     return False, meldungen_folge
 
 
-def rasten_falls_noetig(charakter: Charakter):
-    if charakter.hp_aktuell < charakter.hp_max * 0.4:
-        geheilt, mp_regen = charakter.ausruhen()
-        print(f"\n🛌 {charakter.name} ist schwer verwundet und rastet, um sich zu erholen. (+{geheilt} HP, +{mp_regen} MP)")
-
-
 def spiel_starten():
     print(TITEL_ART)
     print("Ein Leben endet. Ein neues beginnt - in einer Welt voller unendlicher Möglichkeiten.\n")
@@ -93,8 +87,6 @@ def spiel_starten():
     ende_grund = None
 
     while True:
-        charakter.tage_vergangen += 1
-
         print(f"\n{'=' * 70}\n📅 Tag {charakter.tage_vergangen}  |  {charakter.status_zeile()}\n{'=' * 70}")
         if charakter.begleiter:
             print(f"   {charakter.begleiter_zeile()}")
@@ -107,18 +99,18 @@ def spiel_starten():
             ende_grund = "tod"
             break
 
-        meilenstein_text = pruefe_meilenstein(charakter)
-        if meilenstein_text:
-            print(meilenstein_text)
-            pause()
-
-        rasten_falls_noetig(charakter)
+        if ereignis.beendet_tag:
+            charakter.tage_vergangen += 1
+            charakter.aktionen_uebrig = MAX_AKTIONEN_PRO_TAG
+            meilenstein_text = pruefe_meilenstein(charakter)
+            if meilenstein_text:
+                print(meilenstein_text)
+                pause()
+        elif ereignis.kostet_aktion:
+            charakter.aktionen_uebrig = max(0, charakter.aktionen_uebrig - 1)
 
         if charakter.daemonenkoenig_besiegt:
             ende_grund = "daemonenkoenig"
-            break
-        if charakter.level >= 100:
-            ende_grund = "levelcap"
             break
 
         pause()

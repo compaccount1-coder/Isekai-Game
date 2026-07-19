@@ -8,6 +8,7 @@ from game.companions import Begleiter
 from game.items import Item, Trank, generiere_item, generiere_trank, schmiede_upgrade
 
 STATS = ("STR", "DEX", "INT", "WIS", "CON", "CHA")
+MAX_AKTIONEN_PRO_TAG = 4
 
 
 def xp_fuer_level(level: int) -> int:
@@ -58,7 +59,8 @@ class Charakter:
     begleiter: list[Begleiter] = field(default_factory=list)
     gilde: str | None = None
     besiegte_gegner: int = 0
-    tage_vergangen: int = 0
+    tage_vergangen: int = 1
+    aktionen_uebrig: int = MAX_AKTIONEN_PRO_TAG
     lebendig: bool = True
     hp_aktuell: int = 0
     mp_aktuell: int = 0

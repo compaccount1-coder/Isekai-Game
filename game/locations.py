@@ -6,9 +6,9 @@ und Übungsplatz."""
 import random
 from dataclasses import dataclass
 
-from game.character import Charakter
+from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import TANK_PFADE
-from game.combat import erwartete_kampfkraft, rundenbasierter_kampf
+from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten
 from game.companions import generiere_begleiter, gruppen_rollen, ist_ausgewogene_gruppe
 from game.endgame import (
     daemonenjagd_verfuegbar,
@@ -107,23 +107,35 @@ ORTE = {
 }
 
 
-def waehle_ort(charakter: Charakter) -> str:
-    """Der Spieler wählt aktiv, wohin der Charakter als Nächstes geht."""
+ORT_BESCHREIBUNGEN = {
+    "taverne": "Ausruhen, Gerüchte hören, eine Gruppe finden",
+    "marktplatz": "Handeln, Tränke, Anwesen, Kutsche",
+    "gildenviertel": "Quest-Brett, Rangaufstieg, Klatsch",
+    "wildnis": "Erkunden, kämpfen, Dungeons",
+    "tempelbezirk": "Segen, Gespräche, Ruhe",
+    "uebungsplatz": "Fähigkeiten trainieren",
+    "adelsviertel": "Politik, Audienzen, Intrigen",
+}
+
+
+def verfuegbare_orte(charakter: Charakter) -> list[str]:
+    """Sind die Aktionen für heute aufgebraucht, bleibt nur noch die Taverne,
+    um schlafen zu gehen und den nächsten Tag zu beginnen."""
+    if charakter.aktionen_uebrig <= 0:
+        return ["taverne"]
     optionen_ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
     if charakter.ruf > 20:
         optionen_ids.append("adelsviertel")
+    return optionen_ids
 
-    beschreibungen = {
-        "taverne": "Ausruhen, Gerüchte hören, eine Gruppe finden",
-        "marktplatz": "Handeln, Tränke, Anwesen, Kutsche",
-        "gildenviertel": "Quest-Brett, Rangaufstieg, Klatsch",
-        "wildnis": "Erkunden, kämpfen, Dungeons",
-        "tempelbezirk": "Segen, Gespräche, Ruhe",
-        "uebungsplatz": "Fähigkeiten trainieren",
-        "adelsviertel": "Politik, Audienzen, Intrigen",
-    }
-    texte = [f"{ORTE[o].icon} {ORTE[o].name} - {beschreibungen[o]}" for o in optionen_ids]
-    idx = menu_waehlen(f"📍 Wohin geht {charakter.name}?", texte)
+
+def waehle_ort(charakter: Charakter) -> str:
+    """Der Spieler wählt aktiv, wohin der Charakter als Nächstes geht."""
+    optionen_ids = verfuegbare_orte(charakter)
+    if optionen_ids == ["taverne"]:
+        print(f"\n😴 {charakter.name} hat für heute keine Kraft mehr übrig - Zeit, in der Taverne zu schlafen.")
+    texte = [f"{ORTE[o].icon} {ORTE[o].name} - {ORT_BESCHREIBUNGEN[o]}" for o in optionen_ids]
+    idx = menu_waehlen(f"📍 Wohin geht {charakter.name}? (Aktionen übrig: {charakter.aktionen_uebrig}/{MAX_AKTIONEN_PRO_TAG})", texte)
     return optionen_ids[idx]
 
 
@@ -132,14 +144,17 @@ def waehle_ort(charakter: Charakter) -> str:
 # ---------------------------------------------------------------------------
 
 def _taverne_ausruhen(charakter: Charakter, taverne: str) -> Ereignis:
+    """Schlafen ist die einzige Aktion, die den Tag beendet - sie kostet keine
+    der täglichen Aktionen, dafür aber auch keine Wahl: erst danach beginnt
+    ein neuer Tag mit frischen 4 Aktionen."""
     kosten = min(charakter.gold, random.randint(3, 12))
     charakter.gold -= kosten
     if charakter.hp_aktuell >= charakter.hp_max and charakter.mp_aktuell >= charakter.mp_max:
         text = f"🛌 {charakter.name} nimmt sich ein Zimmer in '{taverne}' für eine ruhige Nacht - wohlauf und ausgeruht wie eh und je."
-        return Ereignis(text=text)
+        return Ereignis(text=text, kostet_aktion=False, beendet_tag=True)
     geheilt, mp_regen = charakter.ausruhen()
     text = f"🛌 {charakter.name} nimmt sich ein Zimmer in '{taverne}' und ruht sich aus. (+{geheilt} HP, +{mp_regen} MP)"
-    return Ereignis(text=text)
+    return Ereignis(text=text, kostet_aktion=False, beendet_tag=True)
 
 
 def _geruecht_pool(charakter: Charakter) -> list[str]:
@@ -203,8 +218,12 @@ def _taverne_gruppenangebot(charakter: Charakter) -> Ereignis:
 
 def besuche_taverne(charakter: Charakter) -> Ereignis:
     taverne = random.choice(TAVERNEN_NAMEN)
+
+    if charakter.aktionen_uebrig <= 0:
+        return _taverne_ausruhen(charakter, taverne)
+
     optionen = [
-        f"Ausruhen in '{taverne}' (HP & MP)",
+        f"Schlafen gehen in '{taverne}' (beendet den Tag, HP & MP)",
         "Gerüchte am Tresen aufschnappen",
         "An einem Trinkspiel teilnehmen",
     ]
@@ -396,7 +415,7 @@ def _gilde_klatsch(charakter: Charakter) -> Ereignis:
     return Ereignis(text=text, xp=int(10 * charakter.level))
 
 
-def _quest_brett_ansehen(charakter: Charakter, welt: Welt) -> Ereignis:
+def _quest_brett_ansehen(charakter: Charakter, welt: Welt) -> "Ereignis | Kampfstart":
     quests = generiere_quest_brett(charakter.rang)
     texte = [
         f"[Rang {q.rang}] {q.titel} ({q.typ}) - Belohnung: {q.belohnung_gold}g, {q.belohnung_xp} XP"
@@ -407,12 +426,10 @@ def _quest_brett_ansehen(charakter: Charakter, welt: Welt) -> Ereignis:
     if idx == len(quests):
         return Ereignis(text=f"{charakter.name} entscheidet sich, heute keine Quest anzunehmen.")
 
-    quest = quests[idx]
-    _, log, erfolg = quest_abschliessen(charakter, quest)
-    return Ereignis(text=f"📜 {charakter.name} nimmt die Quest an: \"{quest.titel}\"", log=log, ist_wichtig=erfolg)
+    return quest_abschliessen(charakter, quests[idx])
 
 
-def _rangaufstieg_pruefung(charakter: Charakter) -> Ereignis:
+def _rangaufstieg_pruefung(charakter: Charakter) -> "Ereignis | Kampfstart":
     ziel = naechster_rang(charakter.rang)
     # erwartete_kampfkraft liegt bereits ca. 20-25% über der tatsächlichen
     # Kampfkraft eines Durchschnittscharakters (siehe combat.py) - ein
@@ -420,36 +437,31 @@ def _rangaufstieg_pruefung(charakter: Charakter) -> Ereignis:
     # Spielziel, faktisch unbesiegbar. Ein Faktor knapp unter/um 1.0 ist
     # bereits eine echte, faire Herausforderung.
     staerke = int(erwartete_kampfkraft(charakter.level) * random.uniform(0.8, 1.0))
-    ergebnis = rundenbasierter_kampf(charakter, f"Prüfungswächter (Rang {ziel})", staerke)
     einleitung = f"⭐ {charakter.name} tritt zur Rangaufstiegsprüfung für Rang {ziel} an!"
-    log = ergebnis.log[1:] if ergebnis.log else []
+    kampf = kampf_starten(charakter, f"Prüfungswächter (Rang {ziel})", staerke)
 
-    if not charakter.lebendig:
-        return Ereignis(text=einleitung, log=log)
+    def bei_abschluss(ergebnis):
+        log = list(ergebnis.log)
+        if ergebnis.sieg:
+            alter_rang = charakter.rang
+            charakter.rang = ziel
+            log.append(f"🎖️ {charakter.name} besteht die Prüfung! Rangaufstieg: {alter_rang} → {ziel}!")
+            return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, ruf=10, log=log, ist_wichtig=True)
+        else:
+            if charakter.lebendig:
+                log.append("Die Prüfung ist gescheitert - ein neuer Versuch ist jederzeit möglich, sobald die Voraussetzungen weiter erfüllt sind.")
+            return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, log=log)
 
-    if ergebnis.sieg:
-        alter_rang = charakter.rang
-        charakter.rang = ziel
-        log.append(f"🎖️ {charakter.name} besteht die Prüfung! Rangaufstieg: {alter_rang} → {ziel}!")
-        return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, ruf=10, log=log, ist_wichtig=True)
-    else:
-        log.append("Die Prüfung ist gescheitert - ein neuer Versuch ist jederzeit möglich, sobald die Voraussetzungen weiter erfüllt sind.")
-        return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, log=log)
+    return Kampfstart(kampf, bei_abschluss)
 
 
-def _daemonenjagd(charakter: Charakter) -> Ereignis:
+def _daemonenjagd(charakter: Charakter) -> "Ereignis | Kampfstart":
     if demonenkoenig_verfuegbar(charakter):
         optionen = [f"👑💀 {charakter.name} und die Gruppe konfrontieren den Dämonenkönig!", "Sich noch nicht bereit fühlen"]
         idx = menu_waehlen("Alle Unterlinge sind gefallen. Der Dämonenkönig selbst erwartet euch.", optionen)
         if idx == 1:
             return Ereignis(text=f"{charakter.name} sammelt noch einmal Kraft, bevor die letzte Schlacht beginnt.")
-        ergebnis = konfrontiere_daemonenkoenig(charakter)
-        if ergebnis.sieg:
-            charakter.daemonenkoenig_besiegt = True
-        return Ereignis(
-            text=f"👑💀 Die letzte Schlacht beginnt!", log=ergebnis.log,
-            xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, ist_wichtig=True,
-        )
+        return konfrontiere_daemonenkoenig(charakter)
 
     fuersten = verbleibende_fuersten(charakter)
     texte = [f"{name} - {beschr}" for name, beschr in fuersten] + ["Zurückkehren"]
@@ -460,11 +472,7 @@ def _daemonenjagd(charakter: Charakter) -> Ereignis:
     if idx == len(fuersten):
         return Ereignis(text=f"{charakter.name} verschiebt die Jagd auf ein andermal.")
 
-    ergebnis = jage_daemonenfuersten(charakter, fuersten[idx])
-    return Ereignis(
-        text=f"👹 Die Jagd auf {ergebnis.name} beginnt!", log=ergebnis.log,
-        xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, ist_wichtig=ergebnis.sieg,
-    )
+    return jage_daemonenfuersten(charakter, fuersten[idx])
 
 
 def besuche_gildenviertel(charakter: Charakter, welt: Welt) -> Ereignis:
@@ -653,6 +661,42 @@ def besuche_uebungsplatz(charakter: Charakter) -> Ereignis:
 
 
 # ---------------------------------------------------------------------------
+# Interaktiver Kampf (CLI)
+# ---------------------------------------------------------------------------
+
+def _kampf_runde_anzeigen(kampf) -> None:
+    charakter = kampf.charakter
+    aktionen = kampf.verfuegbare_aktionen()
+    texte = []
+    for aktion in aktionen:
+        if aktion == "Angriff":
+            texte.append("Angriff (Grundangriff)")
+        else:
+            skill = charakter.gelernte_skills[aktion]
+            texte.append(f"{aktion} (Lv.{skill.level})")
+    titel = (
+        f"⚔️ Runde {kampf.runde + 1} - {charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP  |  "
+        f"{kampf.gegner.name}: {kampf.gegner.hp}/{kampf.gegner.hp_max} HP"
+    )
+    idx = menu_waehlen(titel, texte)
+    for zeile in kampf.runde_ausfuehren(aktionen[idx]):
+        print(zeile)
+
+
+def kampf_interaktiv_ausfuehren(ergebnis_oder_kampfstart):
+    """Treibt eine Kette von Kampfstart-Objekten (z.B. mehrere Dungeon-Kämpfe
+    in Folge) interaktiv voran, bis ein endgültiges Ereignis vorliegt - der
+    Spieler wählt dabei jede Runde selbst die Fähigkeit seines Charakters."""
+    while isinstance(ergebnis_oder_kampfstart, Kampfstart):
+        kampf = ergebnis_oder_kampfstart.kampf
+        print(f"\n{kampf.log[-1]}")
+        while not kampf.beendet:
+            _kampf_runde_anzeigen(kampf)
+        ergebnis_oder_kampfstart = ergebnis_oder_kampfstart.bei_abschluss(kampf.ergebnis())
+    return ergebnis_oder_kampfstart
+
+
+# ---------------------------------------------------------------------------
 # Master-Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -674,5 +718,8 @@ def besuche_ort(charakter: Charakter, welt: Welt) -> tuple[str, Ereignis]:
         ereignis = besuche_adelsviertel(charakter, welt)
     else:
         ereignis = besuche_uebungsplatz(charakter)
+
+    if isinstance(ereignis, Kampfstart):
+        ereignis = kampf_interaktiv_ausfuehren(ereignis)
 
     return f"{ort.icon} {ort.name}", ereignis

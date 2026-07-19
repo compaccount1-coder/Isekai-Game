@@ -4,7 +4,7 @@ import random
 from dataclasses import dataclass, field
 
 from game.character import Charakter
-from game.combat import erwartete_kampfkraft, rundenbasierter_kampf, zufaelliger_gegner
+from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten, zufaelliger_gegner
 from game.items import generiere_item
 from game.races import DAEMONEN_NAMEN, VOELKER, Dungeon, generiere_dungeon, zufaelliges_volk
 from game.world import Welt
@@ -26,90 +26,96 @@ class Ereignis:
     ruf_bei_volk: tuple[str, int] | None = None
     ist_wichtig: bool = False  # markiert Story-relevante Momente stärker in der Ausgabe
     log: list = field(default_factory=list)  # zusätzliche Zeilen, z.B. Kampfrundenprotokoll
+    kostet_aktion: bool = True  # verbraucht eine der täglichen Aktionen (siehe MAX_AKTIONEN_PRO_TAG)
+    beendet_tag: bool = False  # nur das Schlafen in der Taverne beendet den Tag
 
 
 # ---------------------------------------------------------------------------
 # Kampf- und Dungeon-Ereignisse
 # ---------------------------------------------------------------------------
 
-def ereignis_kampfbegegnung(charakter: Charakter) -> Ereignis:
-    gegner, staerke = zufaelliger_gegner(charakter.level)
-    ergebnis = rundenbasierter_kampf(charakter, gegner, staerke)
-    charakter.besiegte_gegner += 1 if ergebnis.sieg else 0
+def ereignis_kampfbegegnung(charakter: Charakter) -> "Ereignis | Kampfstart":
+    gegner_name, staerke = zufaelliger_gegner(charakter.level)
+    einleitung = f"⚔️ {charakter.name} trifft auf {gegner_name}!"
+    kampf = kampf_starten(charakter, gegner_name, staerke)
 
-    einleitung = f"⚔️ {charakter.name} trifft auf {ergebnis.gegner}!"
-    schluss = f"{charakter.name} besiegt {ergebnis.gegner}!" if ergebnis.sieg else f"{charakter.name} muss sich vor {ergebnis.gegner} zurückziehen."
-    log = ergebnis.log[1:] if ergebnis.log else []  # erste Zeile war die Begegnungs-Ansage, ersetzt durch `einleitung`
-    log.append(schluss)
-    return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, log=log)
+    def bei_abschluss(ergebnis):
+        charakter.besiegte_gegner += 1 if ergebnis.sieg else 0
+        schluss = f"{charakter.name} besiegt {ergebnis.gegner}!" if ergebnis.sieg else f"{charakter.name} muss sich vor {ergebnis.gegner} zurückziehen."
+        log = ergebnis.log[1:] if ergebnis.log else []  # erste Zeile war die Begegnungs-Ansage, ersetzt durch `einleitung`
+        log.append(schluss)
+        return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, log=log)
+
+    return Kampfstart(kampf, bei_abschluss)
 
 
-def ereignis_dungeon(charakter: Charakter) -> Ereignis:
+def ereignis_dungeon(charakter: Charakter) -> "Ereignis | Kampfstart":
     dungeon: Dungeon = generiere_dungeon(charakter.level)
     monster_text = " und ".join(dungeon.monster)
     text = f"🏚️ {charakter.name} betritt {dungeon.name} (Gefahrenstufe {dungeon.gefahrenstufe}) - dort lauern {monster_text}."
-
     basis_staerke = erwartete_kampfkraft(charakter.level)
-    gesamt_log: list[str] = []
-    gesamt_xp = 0
-    gesamt_gold = 0
-    sieg_alle = True
-    for monster in dungeon.monster:
-        if not charakter.lebendig:
-            break
+    monster_liste = list(dungeon.monster)
+
+    def naechstes_monster(gesamt_log, gesamt_xp, gesamt_gold):
+        if not monster_liste:
+            return _dungeon_boss(charakter, dungeon, basis_staerke, text, gesamt_log, gesamt_xp, gesamt_gold)
+        monster = monster_liste.pop(0)
         # Jeder einzelne Dungeon-Gegner ist etwas schwächer als eine volle
         # Solo-Begegnung, da mehrere davon in Folge bestritten werden müssen.
         staerke = int(basis_staerke * (dungeon.gefahrenstufe / 6) * random.uniform(0.55, 0.85))
-        ergebnis = rundenbasierter_kampf(charakter, monster, staerke)
-        gesamt_log.extend(ergebnis.log)
-        gesamt_xp += ergebnis.xp_gewonnen
-        gesamt_gold += ergebnis.gold_gewonnen
-        if not ergebnis.sieg:
-            sieg_alle = False
-            break
+        kampf = kampf_starten(charakter, monster, staerke)
 
-    if not charakter.lebendig:
-        gesamt_log.append("Der Dungeon fordert den höchsten Preis...")
-        return Ereignis(text=text, xp=gesamt_xp, gold=gesamt_gold, log=gesamt_log)
+        def bei_abschluss(ergebnis):
+            neues_log = gesamt_log + ergebnis.log
+            neues_xp = gesamt_xp + ergebnis.xp_gewonnen
+            neues_gold = gesamt_gold + ergebnis.gold_gewonnen
+            if not charakter.lebendig:
+                neues_log.append("Der Dungeon fordert den höchsten Preis...")
+                return Ereignis(text=text, xp=neues_xp, gold=neues_gold, log=neues_log)
+            if not ergebnis.sieg:
+                neues_log.append(f"Zu stark! {charakter.name} zieht sich rechtzeitig zurück, bevor es zu spät ist.")
+                return Ereignis(text=text, xp=neues_xp, gold=neues_gold, log=neues_log)
+            return naechstes_monster(neues_log, neues_xp, neues_gold)
 
-    if not sieg_alle:
-        gesamt_log.append(f"Zu stark! {charakter.name} zieht sich rechtzeitig zurück, bevor es zu spät ist.")
-        return Ereignis(text=text, xp=gesamt_xp, gold=gesamt_gold, log=gesamt_log)
+        return Kampfstart(kampf, bei_abschluss)
 
+    return naechstes_monster([], 0, 0)
+
+
+def _dungeon_boss(charakter, dungeon, basis_staerke, text, gesamt_log, gesamt_xp, gesamt_gold):
     # Boss-Kampf: die reguläre Monsterwache ist überwunden, doch der Herrscher
     # des Dungeons erwartet noch einen letzten, härteren Kampf.
     boss_name = f"Wächter von {dungeon.name}"
     boss_staerke = int(basis_staerke * (dungeon.gefahrenstufe / 5) * random.uniform(1.1, 1.5))
-    boss_ergebnis = rundenbasierter_kampf(charakter, boss_name, boss_staerke)
-    gesamt_log.append(f"👑 Der Weg ist frei - {boss_name} erhebt sich zum letzten Kampf!")
-    gesamt_log.extend(boss_ergebnis.log)
-    gesamt_xp += boss_ergebnis.xp_gewonnen
-    gesamt_gold += boss_ergebnis.gold_gewonnen
+    kampf = kampf_starten(charakter, boss_name, boss_staerke)
+    gesamt_log = gesamt_log + [f"👑 Der Weg ist frei - {boss_name} erhebt sich zum letzten Kampf!"]
 
-    if not charakter.lebendig:
-        gesamt_log.append("Der Dungeon-Wächter fordert den höchsten Preis...")
-        return Ereignis(text=text, xp=gesamt_xp, gold=gesamt_gold, log=gesamt_log)
+    def bei_abschluss(ergebnis):
+        neues_log = gesamt_log + ergebnis.log
+        neues_xp = gesamt_xp + ergebnis.xp_gewonnen
+        neues_gold = gesamt_gold + ergebnis.gold_gewonnen
+        if not charakter.lebendig:
+            neues_log.append("Der Dungeon-Wächter fordert den höchsten Preis...")
+            return Ereignis(text=text, xp=neues_xp, gold=neues_gold, log=neues_log)
+        if ergebnis.sieg:
+            # Garantierter hochwertiger Boss-Loot, plus Chance auf ein weiteres reguläres Fundstück.
+            boss_item = generiere_item(charakter.level, mindest_seltenheit="Selten")
+            neues_log.append(f"{charakter.name} durchquert den gesamten Dungeon siegreich!")
+            if random.random() < 0.4:
+                neues_log.append(charakter.fund_verarbeiten(generiere_item(charakter.level)))
+            return Ereignis(text=text, xp=neues_xp, gold=neues_gold, item=boss_item, log=neues_log, ist_wichtig=True)
+        else:
+            neues_log.append(f"{boss_name} erweist sich als zu mächtig - {charakter.name} zieht sich mit der bisherigen Beute zurück.")
+            return Ereignis(text=text, xp=neues_xp, gold=neues_gold, log=neues_log)
 
-    if boss_ergebnis.sieg:
-        # Garantierter hochwertiger Boss-Loot, plus Chance auf ein weiteres reguläres Fundstück.
-        boss_item = generiere_item(charakter.level, mindest_seltenheit="Selten")
-        gesamt_log.append(f"{charakter.name} durchquert den gesamten Dungeon siegreich!")
-        if random.random() < 0.4:
-            gesamt_log.append(charakter.fund_verarbeiten(generiere_item(charakter.level)))
-        return Ereignis(
-            text=text, xp=gesamt_xp, gold=gesamt_gold, item=boss_item,
-            log=gesamt_log, ist_wichtig=True,
-        )
-    else:
-        gesamt_log.append(f"{boss_name} erweist sich als zu mächtig - {charakter.name} zieht sich mit der bisherigen Beute zurück.")
-        return Ereignis(text=text, xp=gesamt_xp, gold=gesamt_gold, log=gesamt_log)
+    return Kampfstart(kampf, bei_abschluss)
 
 
 # ---------------------------------------------------------------------------
 # Dämonische Ereignisse
 # ---------------------------------------------------------------------------
 
-def ereignis_daemon(charakter: Charakter) -> Ereignis:
+def ereignis_daemon(charakter: Charakter) -> "Ereignis | Kampfstart":
     daemon = random.choice(DAEMONEN_NAMEN)
     # Dämonen sind bewusst als echte Herausforderung gedacht - spürbar über
     # der erwarteten Kampfkraft für das aktuelle Level. erwartete_kampfkraft
@@ -118,16 +124,19 @@ def ereignis_daemon(charakter: Charakter) -> Ereignis:
     # Faktor bereits für eine echte Herausforderung, ohne auf niedrigem Level
     # (kaum Skills, keine Begleiter) fast immer tödlich zu sein.
     staerke = int(erwartete_kampfkraft(charakter.level) * random.uniform(0.75, 1.1))
-    ergebnis = rundenbasierter_kampf(charakter, daemon, staerke)
     einleitung = f"👹 Ein Riss zur Dämonenebene öffnet sich - {daemon} tritt hervor!"
+    kampf = kampf_starten(charakter, daemon, staerke)
 
-    log = ergebnis.log[1:] if ergebnis.log else []  # erste Zeile war die generische Begegnungs-Ansage
-    if ergebnis.sieg:
-        log.append(f"{charakter.name} bannt {daemon} zurück in den Abgrund!")
-        return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen * 2, gold=ergebnis.gold_gewonnen, ruf=10, log=log, ist_wichtig=True)
-    else:
-        log.append(f"{charakter.name} ist dem Wesen nicht gewachsen und flieht knapp mit dem Leben davon.")
-        return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, ruf=-3, log=log)
+    def bei_abschluss(ergebnis):
+        log = ergebnis.log[1:] if ergebnis.log else []  # erste Zeile war die generische Begegnungs-Ansage
+        if ergebnis.sieg:
+            log.append(f"{charakter.name} bannt {daemon} zurück in den Abgrund!")
+            return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen * 2, gold=ergebnis.gold_gewonnen, ruf=10, log=log, ist_wichtig=True)
+        else:
+            log.append(f"{charakter.name} ist dem Wesen nicht gewachsen und flieht knapp mit dem Leben davon.")
+            return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, ruf=-3, log=log)
+
+    return Kampfstart(kampf, bei_abschluss)
 
 
 # ---------------------------------------------------------------------------
@@ -157,18 +166,22 @@ def ereignis_mentor(charakter: Charakter) -> Ereignis:
     return Ereignis(text=text, xp=int(30 * charakter.level * random.uniform(0.5, 1.2)), ruf=2)
 
 
-def ereignis_rivale(charakter: Charakter) -> Ereignis:
+def ereignis_rivale(charakter: Charakter) -> "Ereignis | Kampfstart":
     name = random.choice(NPC_VORNAMEN)
     text = f"😤 {name}, ein{'e' if random.random() < 0.5 else ''} ehrgeizige{'r' if random.random() < 0.5 else ''} Rivale, fordert {charakter.name} zu einem Wettstreit heraus!"
     staerke = int(erwartete_kampfkraft(charakter.level) * random.uniform(0.7, 1.05))
-    ergebnis = rundenbasierter_kampf(charakter, name, staerke)
-    log = ergebnis.log[1:] if ergebnis.log else []
-    if ergebnis.sieg:
-        log.append(f"{charakter.name} gewinnt und erntet Respekt in der Region.")
-        return Ereignis(text=text, xp=ergebnis.xp_gewonnen, ruf=5, log=log)
-    else:
-        log.append(f"{name} triumphiert diesmal - eine bittere, aber lehrreiche Niederlage.")
-        return Ereignis(text=text, xp=ergebnis.xp_gewonnen // 2, ruf=-2, log=log)
+    kampf = kampf_starten(charakter, name, staerke)
+
+    def bei_abschluss(ergebnis):
+        log = ergebnis.log[1:] if ergebnis.log else []
+        if ergebnis.sieg:
+            log.append(f"{charakter.name} gewinnt und erntet Respekt in der Region.")
+            return Ereignis(text=text, xp=ergebnis.xp_gewonnen, ruf=5, log=log)
+        else:
+            log.append(f"{name} triumphiert diesmal - eine bittere, aber lehrreiche Niederlage.")
+            return Ereignis(text=text, xp=ergebnis.xp_gewonnen // 2, ruf=-2, log=log)
+
+    return Kampfstart(kampf, bei_abschluss)
 
 
 def ereignis_haendler(charakter: Charakter) -> Ereignis:
@@ -311,7 +324,7 @@ EREIGNIS_GEWICHTE = {
 }
 
 
-def zufallsereignis(charakter: Charakter, welt: Welt) -> Ereignis:
+def zufallsereignis(charakter: Charakter, welt: Welt) -> "Ereignis | Kampfstart":
     kategorien = list(EREIGNIS_GEWICHTE.keys())
     werte = list(EREIGNIS_GEWICHTE.values())
     kategorie = random.choices(kategorien, weights=werte, k=1)[0]

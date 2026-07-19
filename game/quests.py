@@ -3,7 +3,8 @@
 import random
 from dataclasses import dataclass
 
-from game.combat import erwartete_kampfkraft, rundenbasierter_kampf, zufaelliger_gegner
+from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten, zufaelliger_gegner
+from game.events import Ereignis
 from game.items import generiere_item
 from game.ranks import RANG_MULTIPLIKATOR, RANG_REIHENFOLGE
 from game.world import Welt
@@ -87,37 +88,40 @@ def generiere_quest_brett(charakter_rang: str, anzahl: int = 5) -> list[Quest]:
     return quests
 
 
-def quest_abschliessen(charakter, quest: Quest) -> tuple[str, list[str], bool]:
-    """Löst eine Quest auf - meist über eine oder mehrere Kampfbegegnungen,
-    skaliert nach Gefahr-Faktor des Quest-Typs. Gibt (Abschlusstext, Log,
-    Erfolg) zurück."""
+def quest_abschliessen(charakter, quest: Quest) -> "Ereignis | Kampfstart":
+    """Löst eine Quest auf - über eine Kampfbegegnung, skaliert nach
+    Gefahr-Faktor des Quest-Typs. Gibt entweder direkt ein Ereignis zurück
+    (z.B. wenn der Charakter gar nicht mehr antreten kann) oder einen
+    Kampfstart, dessen Abschluss-Callback das endgültige Ereignis liefert."""
     basis_staerke = erwartete_kampfkraft(charakter.level)
     staerke = int(basis_staerke * quest.gefahr_faktor * random.uniform(0.65, 0.95))
     gegner_name, _ = zufaelliger_gegner(charakter.level)
-
-    log: list[str] = [f"📜 {charakter.name} macht sich auf: \"{quest.titel}\" ({quest.typ}, Rang {quest.rang})."]
-
-    if not charakter.lebendig:
-        return "Die Quest kann nicht angetreten werden.", log, False
-
-    ergebnis = rundenbasierter_kampf(charakter, gegner_name, staerke)
-    log.extend(ergebnis.log)
+    intro = f"📜 {charakter.name} macht sich auf: \"{quest.titel}\" ({quest.typ}, Rang {quest.rang})."
 
     if not charakter.lebendig:
-        log.append("Die Quest endet in einer Katastrophe...")
-        return f"Quest gescheitert: {quest.titel}", log, False
+        return Ereignis(text="Die Quest kann nicht angetreten werden.")
 
-    if ergebnis.sieg:
-        charakter.gold += quest.belohnung_gold
-        meldungen = charakter.xp_hinzufuegen(quest.belohnung_xp)
-        charakter.abgeschlossene_quests += 1
-        charakter.ruf += int(3 * RANG_MULTIPLIKATOR[quest.rang] / 2)
-        log.append(f"✅ Quest erfüllt! Belohnung: {quest.belohnung_gold}g, {quest.belohnung_xp} XP.")
-        log.extend(meldungen)
-        if random.random() < 0.15 + 0.03 * RANG_REIHENFOLGE.index(quest.rang):
-            item = generiere_item(charakter.level)
-            log.append(charakter.fund_verarbeiten(item))
-        return f"Quest erfolgreich: {quest.titel}", log, True
-    else:
-        log.append(f"❌ Quest gescheitert: {quest.titel} war zu gefährlich.")
-        return f"Quest gescheitert: {quest.titel}", log, False
+    kampf = kampf_starten(charakter, gegner_name, staerke)
+
+    def bei_abschluss(ergebnis):
+        log = [intro] + ergebnis.log
+        if not charakter.lebendig:
+            log.append("Die Quest endet in einer Katastrophe...")
+            return Ereignis(text=f"Quest gescheitert: {quest.titel}", log=log)
+
+        if ergebnis.sieg:
+            charakter.gold += quest.belohnung_gold
+            meldungen = charakter.xp_hinzufuegen(quest.belohnung_xp)
+            charakter.abgeschlossene_quests += 1
+            charakter.ruf += int(3 * RANG_MULTIPLIKATOR[quest.rang] / 2)
+            log.append(f"✅ Quest erfüllt! Belohnung: {quest.belohnung_gold}g, {quest.belohnung_xp} XP.")
+            log.extend(meldungen)
+            if random.random() < 0.15 + 0.03 * RANG_REIHENFOLGE.index(quest.rang):
+                item = generiere_item(charakter.level)
+                log.append(charakter.fund_verarbeiten(item))
+            return Ereignis(text=f"Quest erfolgreich: {quest.titel}", log=log, ist_wichtig=True)
+        else:
+            log.append(f"❌ Quest gescheitert: {quest.titel} war zu gefährlich.")
+            return Ereignis(text=f"Quest gescheitert: {quest.titel}", log=log)
+
+    return Kampfstart(kampf, bei_abschluss)

@@ -8,8 +8,9 @@ import pygame
 from game import locations as locations_module
 from game import savegame
 from gui import orte, spiellauf, theme, widgets
-from game.character import Charakter
+from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import KLASSEN
+from game.combat import Kampfstart
 from game.story import ISEKAI_INTROS, PERSOENLICHKEITEN, erzeuge_ende
 from game.world import generiere_welt
 from gui.orte import Submenu
@@ -97,7 +98,7 @@ class CharErstellungScene(Szene):
     def __init__(self, app):
         super().__init__(app)
         self.intro = random.choice(ISEKAI_INTROS)
-        self.name_eingabe = widgets.TextEingabe((theme.BREITE // 2 - 220, 175, 440, 46), placeholder="Wie lautete dein Name in deinem vorherigen Leben?")
+        self.name_eingabe = widgets.TextEingabe((theme.BREITE // 2 - 220, 178, 440, 42), groesse=22, placeholder="Name eingeben...")
         self.klasse_id: str | None = None
         self.klassen_buttons: list[tuple[str, Button]] = []
         self._baue_klassen_buttons()
@@ -148,6 +149,8 @@ class CharErstellungScene(Szene):
             surface.blit(label, (theme.BREITE // 2 - label.get_width() // 2, y))
             y += 19
 
+        namens_label = theme.font(16).render("Wie lautete dein Name in deinem vorherigen Leben?", True, theme.FARBEN["text_dim"])
+        surface.blit(namens_label, (theme.BREITE // 2 - namens_label.get_width() // 2, 155))
         self.name_eingabe.draw(surface)
 
         for kid, btn in self.klassen_buttons:
@@ -205,7 +208,11 @@ class HubScene(Szene):
     def draw(self, surface):
         surface.fill(theme.FARBEN["hintergrund"])
         _statusleiste(surface, self.charakter)
-        kopf = theme.font(24).render(f"Wohin geht {self.charakter.name}?", True, theme.FARBEN["text"])
+        if self.charakter.aktionen_uebrig <= 0:
+            kopf_text = f"😴 {self.charakter.name} ist erschöpft - Zeit, in der Taverne zu schlafen."
+        else:
+            kopf_text = f"Wohin geht {self.charakter.name}? (Aktionen übrig: {self.charakter.aktionen_uebrig}/{MAX_AKTIONEN_PRO_TAG})"
+        kopf = theme.font(24).render(kopf_text, True, theme.FARBEN["text"])
         surface.blit(kopf, (theme.BREITE // 2 - kopf.get_width() // 2, 205))
         for button in self.buttons:
             button.draw(surface)
@@ -257,6 +264,8 @@ class OrtScene(Szene):
             self.app.wechsle_szene(
                 OrtScene(self.app, self.charakter, self.welt, ergebnis.titel, ergebnis.optionen, self.hintergrundfarbe, zurueck=lambda: zurueck_ziel)
             )
+        elif isinstance(ergebnis, Kampfstart):
+            self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.titel, ergebnis, self.hintergrundfarbe))
         else:
             _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.titel, ergebnis)
 
@@ -273,6 +282,94 @@ class OrtScene(Szene):
             button.draw(surface)
         if self.zurueck_button:
             self.zurueck_button.draw(surface)
+
+
+class KampfScene(Szene):
+    """Interaktive Kampfanzeige: der Spieler wählt jede Runde selbst die
+    Fähigkeit seines Charakters über Buttons, statt dass der Kampf automatisch
+    abläuft. Mehrere Kämpfe in Folge (z.B. ein Dungeon) werden durch Verketten
+    weiterer KampfScene-Instanzen über bei_abschluss abgebildet."""
+
+    def __init__(self, app, charakter, welt, ort_titel, kampfstart, hintergrundfarbe=None):
+        super().__init__(app)
+        self.charakter = charakter
+        self.welt = welt
+        self.ort_titel = ort_titel
+        self.kampfstart = kampfstart
+        self.kampf = kampfstart.kampf
+        self.hintergrundfarbe = hintergrundfarbe or theme.FARBEN["hintergrund"]
+        self.scroll = 0
+        self._auto_scroll = True
+        self._textrect = pygame.Rect(80, 300, theme.BREITE - 160, theme.HOEHE - 460)
+        self.aktions_buttons: list[tuple[str, Button]] = []
+        self._baue_buttons()
+
+    def _baue_buttons(self):
+        self.aktions_buttons = []
+        aktionen = self.kampf.verfuegbare_aktionen()
+        breite, hoehe, abstand = 280, 50, 12
+        spalten = 3
+        gesamt_breite = min(len(aktionen), spalten) * breite + (min(len(aktionen), spalten) - 1) * abstand
+        start_x = (theme.BREITE - gesamt_breite) // 2
+        start_y = theme.HOEHE - 150
+        for i, aktion in enumerate(aktionen):
+            spalte = i % spalten
+            zeile = i // spalten
+            rect = (start_x + spalte * (breite + abstand), start_y + zeile * (hoehe + abstand), breite, hoehe)
+            if aktion == "Angriff":
+                label = "Angriff (Grundangriff)"
+            else:
+                lvl = self.charakter.gelernte_skills[aktion].level
+                label = f"{aktion} (Lv.{lvl})"
+            self.aktions_buttons.append((aktion, Button(rect, label, groesse=17)))
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEWHEEL:
+            self.scroll = max(0, self.scroll - event.y * 30)
+            self._auto_scroll = False
+        for aktion, button in self.aktions_buttons:
+            if button.handle_event(event):
+                self._runde(aktion)
+                return
+
+    def _runde(self, aktion):
+        self.kampf.runde_ausfuehren(aktion)
+        self._auto_scroll = True
+        if self.kampf.beendet:
+            folge = self.kampfstart.bei_abschluss(self.kampf.ergebnis())
+            if isinstance(folge, Kampfstart):
+                self.app.wechsle_szene(KampfScene(self.app, self.charakter, self.welt, self.ort_titel, folge, self.hintergrundfarbe))
+            else:
+                _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.ort_titel, folge)
+        else:
+            self._baue_buttons()
+
+    def draw(self, surface):
+        surface.fill(self.hintergrundfarbe)
+        _statusleiste(surface, self.charakter)
+
+        titel = theme.font(26, fett=True).render(f"⚔️ {self.kampf.gegner.name}", True, theme.FARBEN["akzent"])
+        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 205))
+
+        gegner_hp_text = theme.font(17).render(f"{self.kampf.gegner.name}: {self.kampf.gegner.hp}/{self.kampf.gegner.hp_max} HP", True, theme.FARBEN["text"])
+        surface.blit(gegner_hp_text, (theme.BREITE // 2 - gegner_hp_text.get_width() // 2, 240))
+        gegner_balken = pygame.Rect(theme.BREITE // 2 - 220, 262, 440, 16)
+        widgets.balken(surface, gegner_balken, self.kampf.gegner.hp / max(1, self.kampf.gegner.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+
+        widgets.panel(surface, self._textrect)
+        innen = self._textrect.inflate(-30, -30)
+        log_text = "\n".join(self.kampf.log)
+        gesamthoehe = widgets.text_block(surface, log_text, theme.font(16), theme.FARBEN["text"], innen, scroll=self.scroll)
+        if self._auto_scroll:
+            self.scroll = max(0, gesamthoehe - innen.height)
+        self.scroll = max(0, min(self.scroll, max(0, gesamthoehe - innen.height)))
+
+        if not self.kampf.beendet:
+            for _, button in self.aktions_buttons:
+                button.draw(surface)
+        else:
+            warte_label = theme.font(18).render("...", True, theme.FARBEN["text_dim"])
+            surface.blit(warte_label, (theme.BREITE // 2 - warte_label.get_width() // 2, theme.HOEHE - 130))
 
 
 class MeldungScene(Szene):
@@ -315,7 +412,15 @@ def _starte_ereignis_anzeige(app, charakter, welt, ort_titel, ereignis):
         if gestorben:
             _zeige_ende(app, charakter, welt, "tod")
             return
-        zusatztext, ende_grund = spiellauf.tagesende(charakter, welt)
+
+        if ereignis.beendet_tag:
+            zusatztext = spiellauf.tagesende(charakter, welt)
+        else:
+            if ereignis.kostet_aktion:
+                charakter.aktionen_uebrig = max(0, charakter.aktionen_uebrig - 1)
+            zusatztext = ""
+
+        ende_grund = spiellauf.pruefe_spielende(charakter)
         if zusatztext.strip():
             app.wechsle_szene(
                 MeldungScene(app, "📅 Der Tag geht weiter", zusatztext, "Weiter", lambda: _nach_tagesende(app, charakter, welt, ende_grund))

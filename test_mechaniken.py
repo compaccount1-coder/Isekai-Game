@@ -1,12 +1,14 @@
 """Nicht-interaktiver Test der Kernmechaniken: Level bis 100, Klassenentwicklung,
 Rangaufstieg F->S, Quest-System, und die komplette Dämonenkönig-Handlung. Ruft
 die zugrundeliegenden Funktionen direkt auf (nicht über die interaktiven Menüs
-in locations.py, die echte Eingabe erfordern)."""
+in locations.py, die echte Eingabe erfordern) und löst Kämpfe automatisch auf
+(kampfstart_automatisch_aufloesen), statt Runde für Runde Spieler-Eingaben zu
+simulieren."""
 
 import random
 
 from game.character import Charakter
-from game.combat import erwartete_kampfkraft, rundenbasierter_kampf, zufaelliger_gegner
+from game.combat import erwartete_kampfkraft, kampfstart_automatisch_aufloesen, rundenbasierter_kampf
 from game.companions import generiere_begleiter, gruppen_rollen, ist_ausgewogene_gruppe
 from game.endgame import (
     DAEMONENFUERSTEN,
@@ -59,7 +61,7 @@ for tag in range(400):
     if not charakter.lebendig:
         print(f"Charakter gestorben an Tag {tag}")
         break
-    ereignis = zufallsereignis(charakter, welt)
+    ereignis = kampfstart_automatisch_aufloesen(zufallsereignis(charakter, welt))
     if ereignis.xp:
         meldungen = charakter.xp_hinzufuegen(ereignis.xp)
         for m in meldungen:
@@ -106,8 +108,8 @@ while charakter.rang != "S" and sicherheitszaehler < 500 and charakter.lebendig:
     # war ein Testartefakt, das die Kampfbalance künstlicher aussehen ließ,
     # als sie im echten Spiel ist.
     quest = generiere_quest_brett(charakter.rang, anzahl=1)[0]
-    _, log, erfolg = quest_abschliessen(charakter, quest)
-    if erfolg:
+    ergebnis = kampfstart_automatisch_aufloesen(quest_abschliessen(charakter, quest))
+    if ergebnis.text.startswith("Quest erfolgreich"):
         quest_erfolge += 1
 
     if charakter.hp_aktuell < charakter.hp_max * 0.4 and charakter.lebendig:
@@ -117,8 +119,8 @@ while charakter.rang != "S" and sicherheitszaehler < 500 and charakter.lebendig:
         alter_rang = charakter.rang
         # Rangaufstiegsprüfung simulieren (wie in locations._rangaufstieg_pruefung)
         staerke = int(erwartete_kampfkraft(charakter.level) * random.uniform(0.8, 1.0))
-        ergebnis = rundenbasierter_kampf(charakter, f"Prüfungswächter", staerke)
-        if ergebnis.sieg:
+        pruefungs_ergebnis = rundenbasierter_kampf(charakter, f"Prüfungswächter", staerke)
+        if pruefungs_ergebnis.sieg:
             charakter.rang = naechster_rang(alter_rang)
             rang_wechsel_log.append(f"{alter_rang} -> {charakter.rang} (Tag/Iteration {sicherheitszaehler}, Level {charakter.level})")
         elif not charakter.lebendig:
@@ -164,9 +166,11 @@ else:
         while charakter.hp_aktuell < charakter.hp_max * 0.95 and rastversuche < 6:
             charakter.ausruhen()
             rastversuche += 1
-        ergebnis = jage_daemonenfuersten(charakter, restliche[0])
-        print(f"  {ergebnis.name}: {'SIEG' if ergebnis.sieg else 'Niederlage'}")
-        if not ergebnis.sieg and charakter.lebendig:
+        fuersten_name = restliche[0][0]
+        ergebnis = kampfstart_automatisch_aufloesen(jage_daemonenfuersten(charakter, restliche[0]))
+        sieg = fuersten_name in charakter.besiegte_daemonenfuersten
+        print(f"  {fuersten_name}: {'SIEG' if sieg else 'Niederlage'}")
+        if not sieg and charakter.lebendig:
             # Erneut versuchen mit etwas mehr Level, falls die erste Runde nicht reicht
             charakter.xp_hinzufuegen(int(2000 * charakter.level))
             if charakter.hp_aktuell < charakter.hp_max:
@@ -176,10 +180,8 @@ else:
     print(f"Dämonenkönig verfügbar: {demonenkoenig_verfuegbar(charakter)}")
 
     if demonenkoenig_verfuegbar(charakter) and charakter.lebendig:
-        koenig_ergebnis = konfrontiere_daemonenkoenig(charakter)
-        print(f"Dämonenkönig-Kampf: {'SIEG' if koenig_ergebnis.sieg else 'Niederlage'}")
-        if koenig_ergebnis.sieg:
-            charakter.daemonenkoenig_besiegt = True
+        koenig_ergebnis = kampfstart_automatisch_aufloesen(konfrontiere_daemonenkoenig(charakter))
+        print(f"Dämonenkönig-Kampf: {'SIEG' if charakter.daemonenkoenig_besiegt else 'Niederlage'}")
         for zeile in koenig_ergebnis.log[-6:]:
             print(f"    {zeile}")
 

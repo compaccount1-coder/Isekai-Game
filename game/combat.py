@@ -204,31 +204,52 @@ class Kampfergebnis:
     runden: int = 0
 
 
-def rundenbasierter_kampf(charakter, gegner_name: str | None = None, gegner_staerke: int | None = None,
-                           max_runden: int = 8) -> Kampfergebnis:
-    """Führt einen vollständigen, rundenbasierten Kampf durch. Schaden wird
-    direkt auf charakter.hp_aktuell angewendet (der Charakter kann während des
-    Kampfes sterben). Begleiter handeln jede Runde autonom passend zu ihrer
-    Rolle. Gibt ein Kampfergebnis mit vollständigem Rundenprotokoll zurück,
-    geeignet zur direkten Ausgabe."""
-    if gegner_name is None:
-        gegner_name, gegner_staerke = zufaelliger_gegner(charakter.level)
+class Kampf:
+    """Ein rundenbasierter Kampf als eigener Zustand statt einer einzigen,
+    bis zum Ende durchlaufenden Funktion - so kann der Spieler zwischen den
+    Runden selbst entscheiden, welche Fähigkeit sein Charakter einsetzt,
+    egal ob über ein Terminal-Menü (CLI) oder Buttons (GUI)."""
 
-    gegner = _erzeuge_gegner(gegner_name, gegner_staerke)
-    kampfkraft_basis = charakter.kampfkraft_basis()
-    log: list[str] = [f"⚔️ {charakter.name} trifft auf {gegner.name} ({gegner.hp} HP)!"]
+    def __init__(self, charakter, gegner: Kampfgegner, gegner_staerke_basis: int, max_runden: int = 8):
+        self.charakter = charakter
+        self.gegner = gegner
+        self.gegner_staerke_basis = gegner_staerke_basis
+        self.max_runden = max_runden
+        self.runde = 0
+        self.log: list[str] = [f"⚔️ {charakter.name} trifft auf {gegner.name} ({gegner.hp} HP)!"]
+        self.beendet = False
+        self.sieg = False
 
-    runde = 0
-    while gegner.hp > 0 and charakter.hp_aktuell > 0 and runde < max_runden:
-        runde += 1
-        log.append(f"-- Runde {runde} --")
+    def verfuegbare_aktionen(self) -> list[str]:
+        """Die Fähigkeiten, aus denen der Spieler diese Runde wählen kann."""
+        if not self.charakter.gelernte_skills:
+            return ["Angriff"]
+        return list(self.charakter.gelernte_skills.keys())
+
+    def runde_ausfuehren(self, gewaehlte_aktion: str) -> list[str]:
+        """Führt eine komplette Kampfrunde mit der vom Spieler gewählten
+        Fähigkeit aus (eigener Angriff, Begleiter-Aktionen, Gegenangriff) und
+        gibt die neuen Log-Zeilen zurück. Setzt self.beendet/self.sieg, sobald
+        der Kampf danach entschieden ist."""
+        if self.beendet:
+            return []
+        charakter = self.charakter
+        gegner = self.gegner
+        zeilen = [f"-- Runde {self.runde + 1} --"]
+        self.runde += 1
 
         if charakter.hp_aktuell < charakter.hp_max * 0.3:
             trank_meldung = charakter.bestes_trank_automatisch_nutzen("Heilung")
             if trank_meldung:
-                log.append(f"   {trank_meldung}")
+                zeilen.append(f"   {trank_meldung}")
 
-        skill_name, skill_level = _waehle_skill_fuer_runde(charakter)
+        if gewaehlte_aktion != "Angriff" and gewaehlte_aktion in charakter.gelernte_skills:
+            skill_level = charakter.gelernte_skills[gewaehlte_aktion].level
+        else:
+            gewaehlte_aktion = "Angriff"
+            skill_level = 0
+
+        kampfkraft_basis = charakter.kampfkraft_basis()
         schaden = int(kampfkraft_basis * random.uniform(0.22, 0.32) * (1 + skill_level * 0.06))
         kritisch = random.random() < 0.12
         if kritisch:
@@ -236,50 +257,112 @@ def rundenbasierter_kampf(charakter, gegner_name: str | None = None, gegner_stae
         gegner.hp = max(0, gegner.hp - schaden)
 
         krit_text = " (KRITISCHER TREFFER!)" if kritisch else ""
-        if skill_name == "Angriff":
-            log.append(f"   {charakter.name} greift an{krit_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+        if gewaehlte_aktion == "Angriff":
+            zeilen.append(f"   {charakter.name} greift an{krit_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
         else:
-            log.append(f"   {charakter.name} setzt {skill_name} ein{krit_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein{krit_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
 
         if gegner.hp <= 0:
-            log.append(f"   💀 {gegner.name} ist besiegt!")
-            break
+            zeilen.append(f"   💀 {gegner.name} ist besiegt!")
+            self.beendet = True
+            self.sieg = True
+            self.log.extend(zeilen)
+            return zeilen
 
-        schadensreduktion = _begleiter_runde(charakter, gegner, log)
+        schadensreduktion = _begleiter_runde(charakter, gegner, zeilen)
         if gegner.hp <= 0:
-            break
+            self.beendet = True
+            self.sieg = True
+            self.log.extend(zeilen)
+            return zeilen
 
         angriffsname = random.choice(gegner.angriffe) if gegner.angriffe else "kontert"
         gegen_schaden = int(gegner.angriffskraft * random.uniform(0.14, 0.22))
         gegen_schaden = int(gegen_schaden * (1 - schadensreduktion - charakter.schadensreduktion()))
         charakter.hp_aktuell = max(0, charakter.hp_aktuell - gegen_schaden)
-        log.append(f"   {gegner.name} {angriffsname} - {gegen_schaden} Schaden. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
+        zeilen.append(f"   {gegner.name} {angriffsname} - {gegen_schaden} Schaden. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
 
         if charakter.hp_aktuell <= 0:
             charakter.lebendig = False
-            log.append(f"   💀 {charakter.name} sinkt zu Boden...")
-            break
+            zeilen.append(f"   💀 {charakter.name} sinkt zu Boden...")
+            self.beendet = True
+            self.sieg = False
+            self.log.extend(zeilen)
+            return zeilen
 
-    sieg = gegner.hp <= 0
-    if not sieg and charakter.hp_aktuell > 0:
-        # Rundenlimit erreicht, ohne dass jemand gefallen ist - wer weniger
-        # Anteil seiner HP verloren hat, behält das Feld.
-        spieler_anteil = charakter.hp_aktuell / charakter.hp_max
-        gegner_anteil = gegner.hp / gegner.hp_max
-        sieg = spieler_anteil >= gegner_anteil
-        if sieg:
-            log.append(f"   {gegner.name} zieht sich zurück - {charakter.name} behält die Oberhand.")
+        if self.runde >= self.max_runden:
+            # Rundenlimit erreicht, ohne dass jemand gefallen ist - wer weniger
+            # Anteil seiner HP verloren hat, behält das Feld.
+            spieler_anteil = charakter.hp_aktuell / charakter.hp_max
+            gegner_anteil = gegner.hp / gegner.hp_max
+            sieg = spieler_anteil >= gegner_anteil
+            if sieg:
+                zeilen.append(f"   {gegner.name} zieht sich zurück - {charakter.name} behält die Oberhand.")
+            else:
+                zeilen.append(f"   {charakter.name} zieht sich rechtzeitig zurück.")
+            self.beendet = True
+            self.sieg = sieg
+
+        self.log.extend(zeilen)
+        return zeilen
+
+    def ergebnis(self) -> Kampfergebnis:
+        if self.sieg:
+            xp = int(20 * self.gegner_staerke_basis * random.uniform(0.8, 1.3))
+            gold = int(self.gegner_staerke_basis * random.uniform(1.5, 4))
         else:
-            log.append(f"   {charakter.name} zieht sich rechtzeitig zurück.")
+            xp = int(5 * self.gegner_staerke_basis)
+            gold = 0
+        return Kampfergebnis(
+            sieg=self.sieg, gegner=self.gegner.name, xp_gewonnen=xp, gold_gewonnen=gold,
+            log=self.log, gestorben=not self.charakter.lebendig, runden=self.runde,
+        )
 
-    if sieg:
-        xp = int(20 * gegner_staerke * random.uniform(0.8, 1.3))
-        gold = int(gegner_staerke * random.uniform(1.5, 4))
-    else:
-        xp = int(5 * gegner_staerke)
-        gold = 0
 
-    return Kampfergebnis(
-        sieg=sieg, gegner=gegner.name, xp_gewonnen=xp, gold_gewonnen=gold,
-        log=log, gestorben=not charakter.lebendig, runden=runde,
-    )
+def kampf_starten(charakter, gegner_name: str | None = None, gegner_staerke: int | None = None,
+                   max_runden: int = 8) -> Kampf:
+    """Bereitet einen neuen Kampf vor (Gegner erzeugen, Eröffnungszeile), ohne
+    ihn aufzulösen - der Aufrufer (CLI-Menü oder GUI-KampfScene) treibt ihn
+    danach Runde für Runde selbst voran."""
+    if gegner_name is None:
+        gegner_name, gegner_staerke = zufaelliger_gegner(charakter.level)
+    gegner = _erzeuge_gegner(gegner_name, gegner_staerke)
+    return Kampf(charakter=charakter, gegner=gegner, gegner_staerke_basis=gegner_staerke, max_runden=max_runden)
+
+
+@dataclass
+class Kampfstart:
+    """Signalisiert, dass eine Aktion in einen interaktiven Kampf mündet,
+    statt direkt ein Ereignis zu liefern. `bei_abschluss` erhält das fertige
+    Kampfergebnis, sobald der Kampf vorbei ist, und liefert entweder das
+    endgültige Ereignis oder - bei mehreren Kämpfen in Folge (z.B. ein
+    Dungeon) - den nächsten Kampfstart."""
+    kampf: Kampf
+    bei_abschluss: object  # Callable[[Kampfergebnis], "Ereignis | Kampfstart"]
+
+
+def rundenbasierter_kampf(charakter, gegner_name: str | None = None, gegner_staerke: int | None = None,
+                           max_runden: int = 8) -> Kampfergebnis:
+    """Automatisch aufgelöster Kampf ohne Spieler-Eingabe je Runde - für
+    Kontexte ohne interaktive Steuerung (z.B. Tests). Die eigentliche,
+    spielergesteuerte Variante ist Kampf/kampf_starten() oben, angebunden
+    über game.locations (CLI) bzw. gui.scenes.KampfScene (GUI)."""
+    kampf = kampf_starten(charakter, gegner_name, gegner_staerke, max_runden)
+    while not kampf.beendet:
+        skill_name, _ = _waehle_skill_fuer_runde(charakter)
+        kampf.runde_ausfuehren(skill_name)
+    return kampf.ergebnis()
+
+
+def kampfstart_automatisch_aufloesen(ergebnis_oder_kampfstart):
+    """Löst eine Kette von Kampfstart-Objekten automatisch auf (gewichtete
+    Zufallswahl der Fähigkeiten pro Runde) und gibt das endgültige Ereignis
+    zurück - praktisch für Tests oder andere nicht-interaktive Kontexte, die
+    trotzdem die normalen Ereignis-/Quest-/Endgame-Funktionen aufrufen wollen."""
+    while isinstance(ergebnis_oder_kampfstart, Kampfstart):
+        kampf = ergebnis_oder_kampfstart.kampf
+        while not kampf.beendet:
+            skill_name, _ = _waehle_skill_fuer_runde(kampf.charakter)
+            kampf.runde_ausfuehren(skill_name)
+        ergebnis_oder_kampfstart = ergebnis_oder_kampfstart.bei_abschluss(kampf.ergebnis())
+    return ergebnis_oder_kampfstart
