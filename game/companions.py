@@ -56,7 +56,11 @@ class Begleiter:
 
     @property
     def klassenname(self) -> str:
-        return KLASSEN[self.klasse_id].tiers[0].name
+        """Spiegelt den Level-abhängigen Klassenaufstieg wider (z.B. "Erzmagier"
+        statt "Magier" ab Level 30) - relevant vor allem für Rekruten, die
+        bereits auf hohem Level angeheuert werden und entsprechend schon
+        aufgestiegen sein sollten."""
+        return KLASSEN[self.klasse_id].tier_fuer_level(self.level).name
 
     @property
     def rolle(self) -> str:
@@ -97,6 +101,34 @@ def generiere_begleiter(vorhandene_rollen: list[str] | None = None) -> Begleiter
 
     klasse_id = random.choice(list(KLASSEN.keys()))
     return Begleiter(name=name, klasse_id=klasse_id, eigenschaft=eigenschaft)
+
+
+def generiere_rekruten(charakter_level: int, anzahl: int = 3, vorhandene_rollen: list[str] | None = None) -> list[Begleiter]:
+    """Erzeugt eine Auswahl anheuerbarer Abenteurer für den Gruppen-Markt -
+    ihr Level streut um das Level des Protagonisten (etwas darunter, etwas
+    darüber), statt immer bei Level 1 zu beginnen. Wer auf hohem Level
+    angeheuert wird, ist entsprechend bereits in seiner Klasse aufgestiegen
+    (siehe Begleiter.klassenname)."""
+    varianz = max(2, int(charakter_level * 0.12))
+    rekruten = []
+    for _ in range(anzahl):
+        level = max(1, charakter_level + random.randint(-varianz, varianz))
+        name = random.choice(BEGLEITER_NAMEN)
+        eigenschaft = random.choice(BEGLEITER_EIGENSCHAFTEN)
+        if vorhandene_rollen and random.random() < 0.5:
+            fehlende_rollen = [r for r in ROLLEN if r not in vorhandene_rollen]
+            if fehlende_rollen:
+                ziel_rolle = random.choice(fehlende_rollen)
+                klasse = random.choice(klassen_nach_rolle(ziel_rolle))
+                rekruten.append(Begleiter(name=name, klasse_id=klasse.id, eigenschaft=eigenschaft, level=level))
+                continue
+        klasse_id = random.choice(list(KLASSEN.keys()))
+        rekruten.append(Begleiter(name=name, klasse_id=klasse_id, eigenschaft=eigenschaft, level=level))
+    return rekruten
+
+
+def rekrutierungskosten(begleiter: Begleiter) -> int:
+    return 20 + begleiter.level * 8
 
 
 def gruppen_rollen(begleiter: list[Begleiter]) -> list[str]:

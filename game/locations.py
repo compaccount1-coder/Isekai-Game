@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import AUFSTIEGSPFADE, skill_ist_aoe
 from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten
-from game.companions import generiere_begleiter, gruppen_rollen, ist_ausgewogene_gruppe
+from game.companions import (
+    generiere_begleiter,
+    generiere_rekruten,
+    gruppen_rollen,
+    ist_ausgewogene_gruppe,
+    rekrutierungskosten,
+)
 from game.endgame import (
     daemonenjagd_verfuegbar,
     demonenkoenig_verfuegbar,
@@ -105,6 +111,7 @@ ORTE = {
     "adelsviertel": Ort("Adelsviertel", "🏰"),
     "uebungsplatz": Ort("Übungsplatz", "🎯"),
     "inventar": Ort("Inventar", "🎒"),
+    "gruppe": Ort("Gruppe", "👥"),
 }
 
 
@@ -117,19 +124,22 @@ ORT_BESCHREIBUNGEN = {
     "uebungsplatz": "Fähigkeiten trainieren",
     "adelsviertel": "Politik, Audienzen, Intrigen",
     "inventar": "Ausrüstung wechseln, verkaufen (kostenlos)",
+    "gruppe": "Begleiter entlassen oder anheuern (kostenlos)",
 }
 
 
 def verfuegbare_orte(charakter: Charakter) -> list[str]:
     """Sind die Aktionen für heute aufgebraucht, bleibt nur noch die Taverne,
-    um schlafen zu gehen und den nächsten Tag zu beginnen - das Inventar
-    bleibt aber immer erreichbar, da es keine Aktion kostet."""
+    um schlafen zu gehen und den nächsten Tag zu beginnen - Inventar und
+    Gruppe bleiben aber immer erreichbar, da bloßes Verwalten keine Aktion
+    kostet (nur das tatsächliche Anheuern schon, siehe _gruppe_anheuern)."""
     if charakter.aktionen_uebrig <= 0:
-        return ["taverne", "inventar"]
+        return ["taverne", "inventar", "gruppe"]
     optionen_ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
     if charakter.ruf > 20:
         optionen_ids.append("adelsviertel")
     optionen_ids.append("inventar")
+    optionen_ids.append("gruppe")
     return optionen_ids
 
 
@@ -321,6 +331,54 @@ def inventar_verwalten(charakter: Charakter) -> Ereignis:
         erloes = charakter.verkaufen(item)
         return Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {erloes}g.", kostet_aktion=False)
     return Ereignis(text=f"{charakter.name} überlegt es sich noch einmal.", kostet_aktion=False)
+
+
+# ---------------------------------------------------------------------------
+# Gruppe (Begleiter anheuern/entlassen)
+# ---------------------------------------------------------------------------
+
+def _gruppe_anheuern(charakter: Charakter) -> Ereignis:
+    vorhandene_rollen = gruppen_rollen(charakter.begleiter)
+    rekruten = generiere_rekruten(charakter.level, anzahl=3, vorhandene_rollen=vorhandene_rollen)
+    kosten_liste = [rekrutierungskosten(r) for r in rekruten]
+    texte = [f"{r.anzeige()} - {k}g" for r, k in zip(rekruten, kosten_liste)]
+    texte.append("Niemanden anheuern")
+
+    idx = menu_waehlen(f"🤝 Mögliche Rekruten für {charakter.name}s Gruppe (Gold: {charakter.gold})", texte)
+    if idx == len(rekruten):
+        return Ereignis(text=f"{charakter.name} findet niemand Passendes und kehrt zurück.", kostet_aktion=False)
+
+    rekrut, kosten = rekruten[idx], kosten_liste[idx]
+    if charakter.gold < kosten:
+        return Ereignis(text=f"{rekrut.name} verlangt {kosten}g für die Zusammenarbeit - das übersteigt {charakter.name}s Mittel.", kostet_aktion=False)
+    charakter.gold -= kosten
+    charakter.begleiter_aufnehmen(rekrut)
+    text = f"🤝 {rekrut.name} schließt sich für {kosten}g der Gruppe an: {rekrut.anzeige()}"
+    if ist_ausgewogene_gruppe(charakter.begleiter):
+        text += " Die Gruppe ist damit ausgewogen - Nahkampf, Fernkampf und Unterstützung vereint."
+    return Ereignis(text=text, ist_wichtig=True)
+
+
+def besuche_gruppe(charakter: Charakter) -> Ereignis:
+    """Begleiter ansehen und entlassen kostet keine Aktion - erst das
+    tatsächliche Anheuern eines neuen Mitglieds zählt als Tagesaktivität."""
+    synergie = "ausgewogen (Nahkampf, Fernkampf und Unterstützung vertreten)" if ist_ausgewogene_gruppe(charakter.begleiter) else "nicht ausgewogen"
+    optionen = [f"{b.anzeige()} - Entlassen" for b in charakter.begleiter]
+    if len(charakter.begleiter) < 3:
+        optionen.append("Neue Abenteurer kennenlernen (anheuern)")
+    optionen.append("Zurück")
+
+    idx = menu_waehlen(f"👥 {charakter.name}s Gruppe - Synergie: {synergie}", optionen)
+    anzahl_begleiter = len(charakter.begleiter)
+
+    if idx < anzahl_begleiter:
+        entlassen = charakter.begleiter.pop(idx)
+        return Ereignis(text=f"{charakter.name} verabschiedet sich von {entlassen.name} - hier trennen sich ihre Wege.", kostet_aktion=False)
+
+    rest = idx - anzahl_begleiter
+    if len(charakter.begleiter) < 3 and rest == 0:
+        return _gruppe_anheuern(charakter)
+    return Ereignis(text=f"{charakter.name} belässt die Gruppe, wie sie ist.", kostet_aktion=False)
 
 
 def _markt_schmied(charakter: Charakter) -> Ereignis:
@@ -739,6 +797,8 @@ def besuche_ort(charakter: Charakter, welt: Welt) -> tuple[str, Ereignis]:
         ereignis = besuche_adelsviertel(charakter, welt)
     elif ort_id == "inventar":
         ereignis = inventar_verwalten(charakter)
+    elif ort_id == "gruppe":
+        ereignis = besuche_gruppe(charakter)
     else:
         ereignis = besuche_uebungsplatz(charakter)
 

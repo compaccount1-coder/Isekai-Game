@@ -15,6 +15,7 @@ from game.endgame import (
     verbleibende_fuersten,
 )
 from game.events import Ereignis, ereignis_dungeon, ereignis_gilde, zufallsereignis
+from game.companions import generiere_rekruten, gruppen_rollen, ist_ausgewogene_gruppe, rekrutierungskosten
 from game.items import generiere_trank, schmiede_upgrade
 from game.locations import (
     ORTE,
@@ -61,16 +62,18 @@ ORT_BESCHREIBUNGEN = {
     "uebungsplatz": "Fähigkeiten trainieren",
     "adelsviertel": "Politik, Audienzen, Intrigen",
     "inventar": "Ausrüstung wechseln, verkaufen (kostenlos)",
+    "gruppe": "Begleiter entlassen oder anheuern (kostenlos)",
 }
 
 
 def hub_orte(charakter) -> list[str]:
     if charakter.aktionen_uebrig <= 0:
-        return ["taverne", "inventar"]
+        return ["taverne", "inventar", "gruppe"]
     ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
     if charakter.ruf > 20:
         ids.append("adelsviertel")
     ids.append("inventar")
+    ids.append("gruppe")
     return ids
 
 
@@ -148,6 +151,49 @@ def optionen_inventar(charakter) -> list[tuple[str, Aktion]]:
     if not charakter.inventar:
         return [("Inventar ist leer", lambda: Ereignis(text=f"{charakter.name}s Inventar ist leer - nichts zu verwalten.", kostet_aktion=False))]
     return _inventar_optionen(charakter)
+
+
+# ---------------------------------------------------------------------------
+# Gruppe (Begleiter anheuern/entlassen)
+# ---------------------------------------------------------------------------
+
+def _gruppe_rekruten_submenu(charakter) -> Submenu:
+    vorhandene_rollen = gruppen_rollen(charakter.begleiter)
+    rekruten = generiere_rekruten(charakter.level, anzahl=3, vorhandene_rollen=vorhandene_rollen)
+
+    def anheuern(rekrut, kosten):
+        def aktion():
+            if charakter.gold < kosten:
+                return Ereignis(text=f"{rekrut.name} verlangt {kosten}g für die Zusammenarbeit - das übersteigt {charakter.name}s Mittel.", kostet_aktion=False)
+            charakter.gold -= kosten
+            charakter.begleiter_aufnehmen(rekrut)
+            text = f"🤝 {rekrut.name} schließt sich für {kosten}g der Gruppe an: {rekrut.anzeige()}"
+            if ist_ausgewogene_gruppe(charakter.begleiter):
+                text += " Die Gruppe ist damit ausgewogen - Nahkampf, Fernkampf und Unterstützung vereint."
+            return Ereignis(text=text, ist_wichtig=True)
+        return aktion
+
+    opts = []
+    for r in rekruten:
+        kosten = rekrutierungskosten(r)
+        opts.append((f"{r.anzeige()} - {kosten}g", anheuern(r, kosten)))
+    opts.append(("Niemanden anheuern", lambda: Ereignis(text=f"{charakter.name} findet niemand Passendes und kehrt zurück.", kostet_aktion=False)))
+    return Submenu(f"🤝 Mögliche Rekruten für {charakter.name}s Gruppe (Gold: {charakter.gold})", opts)
+
+
+def optionen_gruppe(charakter) -> list[tuple[str, Aktion]]:
+    """Begleiter ansehen und entlassen kostet keine Aktion - erst das
+    tatsächliche Anheuern eines neuen Mitglieds zählt als Tagesaktivität."""
+    def entlassen(b):
+        def aktion():
+            charakter.begleiter.remove(b)
+            return Ereignis(text=f"{charakter.name} verabschiedet sich von {b.name} - hier trennen sich ihre Wege.", kostet_aktion=False)
+        return aktion
+
+    opts = [(f"{b.anzeige()} - Entlassen", entlassen(b)) for b in list(charakter.begleiter)]
+    if len(charakter.begleiter) < 3:
+        opts.append(("Neue Abenteurer kennenlernen (anheuern)", lambda: _gruppe_rekruten_submenu(charakter)))
+    return opts
 
 
 def _markt_schmied_submenu(charakter) -> Submenu:
@@ -324,5 +370,7 @@ def optionen_fuer_ort(ort_id: str, charakter, welt) -> list[tuple[str, Aktion]]:
         return optionen_adelsviertel(charakter, welt)
     elif ort_id == "inventar":
         return optionen_inventar(charakter)
+    elif ort_id == "gruppe":
+        return optionen_gruppe(charakter)
     else:
         return optionen_uebungsplatz(charakter)
