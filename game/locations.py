@@ -1,0 +1,615 @@
+"""Ortswahl-System: der Spieler entscheidet aktiv, wohin der Charakter geht und
+was er dort tut. Enthält Taverne, Marktplatz (Handel, Anwesen, Kutsche, Tränke),
+Gildenviertel (Quest-Brett, Rangaufstieg), Wildnis, Tempelbezirk, Adelsviertel
+und Übungsplatz."""
+
+import random
+from dataclasses import dataclass
+
+from game.character import Charakter
+from game.classes import TANK_PFADE
+from game.combat import erwartete_kampfkraft, rundenbasierter_kampf
+from game.companions import generiere_begleiter, gruppen_rollen, ist_ausgewogene_gruppe
+from game.endgame import (
+    daemonenjagd_verfuegbar,
+    demonenkoenig_verfuegbar,
+    jage_daemonenfuersten,
+    konfrontiere_daemonenkoenig,
+    verbleibende_fuersten,
+)
+from game.events import Ereignis, ereignis_dungeon, ereignis_gilde, zufallsereignis
+from game.items import generiere_item, generiere_trank
+from game.quests import generiere_quest_brett, quest_abschliessen
+from game.ranks import anforderung_text, kann_aufsteigen, naechster_rang
+from game.world import Welt
+
+NPC_VORNAMEN = [
+    "Aria", "Faelan", "Thrain", "Sylvara", "Korgan", "Elowen", "Baldric", "Nyssa", "Draven", "Isolde",
+    "Kael", "Wren", "Osric", "Talia", "Bram", "Mira", "Fenris", "Rosalind", "Torvald", "Seraphine",
+]
+
+TAVERNEN_NAMEN = [
+    "Zum Goldenen Krug", "Der Müde Wanderer", "Die Trunkene Ziege", "Zum Schwarzen Eber",
+    "Die Letzte Rast", "Zum Singenden Kessel", "Der Krähenhort", "Die Verlorene Münze",
+]
+
+GERUECHTE = [
+    "man erzählt sich von einem Drachen, der in den Bergen im Norden gesichtet wurde",
+    "ein Adliger soll heimlich mit einer verfeindeten Fraktion verhandeln",
+    "in den Kanälen der Unterstadt sollen sich Kultisten versammeln",
+    "eine alte Ruine im Wald soll über Nacht wieder zum Leben erwacht sein",
+    "ein legendärer Schatz soll unter der alten Brücke verborgen liegen",
+    "die Ernte in den umliegenden Dörfern fällt dieses Jahr ungewöhnlich schlecht aus",
+    "ein maskierter Fremder verteilt seit Wochen Gold an die Armen der Stadt",
+    "die Wachen suchen händeringend nach einem entflohenen Gefangenen",
+]
+
+# Gerüchte rund um die Dämonenkönig-Handlung, gestaffelt nach Rang - je höher
+# der Rang, desto konkreter und bedrohlicher wird das, was man am Tresen hört.
+GERUECHTE_DAEMON_FRUEH = [
+    "raunt man sich zu, dass im Süden ganze Ländereien plötzlich verdorren - manche murmeln das Wort 'Dämon'",
+    "erzählt ein Fernhändler von einer Karawane, die spurlos verschwand, nur die Wagen blieben zurück",
+    "will ein Wachmann Schatten gesehen haben, die sich gegen den Wind bewegten",
+]
+GERUECHTE_DAEMON_MITTEL = [
+    "spricht man kaum noch flüsternd über Abraxos, den Dämonenkönig - fast jeder kennt inzwischen den Namen",
+    "berichten Überlebende aus dem Süden von disziplinierten Dämonenkriegern, die eindeutig einem Befehl folgen",
+    "heißt es, eine ganze Gilde habe sich aufgelöst, weil zu viele ihrer Mitglieder nicht von der Jagd auf einen Fürsten zurückkehrten",
+]
+GERUECHTE_DAEMON_SPAET = [
+    "erzählt man sich von ganzen Heeren, die im Namen des Dämonenkönigs durch verwüstete Grenzregionen marschieren",
+    "heißt es, selbst Königreiche würden im Geheimen Boten austauschen, um sich auf das Unausweichliche vorzubereiten",
+    "schwört ein alter Veteran, in seiner Jugend habe man Abraxos schon einmal beinahe besiegt - 'beinahe reichte nicht'",
+]
+
+ANWESEN_NAMEN_ZUSATZ = ["Herrenhaus", "Stadthaus", "Gutshof", "Turmvilla", "Anwesen"]
+
+
+class EingabeErschoepft(Exception):
+    """Wird ausgelöst, wenn keine gültige Eingabe mehr zu bekommen ist (z.B.
+    stdin geschlossen/erschöpft). Statt endlos mit Standardwerten weiterzulaufen,
+    lässt das Hauptprogramm die Sitzung dadurch sauber enden."""
+
+
+def menu_waehlen(titel: str, optionen: list[str]) -> int:
+    """Zeigt ein nummeriertes Menü und gibt den gewählten Index (0-basiert) zurück."""
+    print(f"\n{titel}")
+    for i, opt in enumerate(optionen, 1):
+        print(f"  [{i}] {opt}")
+    ungueltige_versuche = 0
+    while True:
+        try:
+            wahl = input("Wahl: ").strip()
+        except EOFError:
+            raise EingabeErschoepft
+        if wahl.isdigit() and 1 <= int(wahl) <= len(optionen):
+            return int(wahl) - 1
+        ungueltige_versuche += 1
+        if ungueltige_versuche >= 20:
+            raise EingabeErschoepft
+        print("Ungültige Wahl, versuch's nochmal.")
+
+
+@dataclass
+class Ort:
+    name: str
+    icon: str
+
+
+ORTE = {
+    "taverne": Ort("Taverne", "🍺"),
+    "marktplatz": Ort("Marktplatz", "🏪"),
+    "gildenviertel": Ort("Gildenviertel", "🏛️"),
+    "wildnis": Ort("Wildnis", "🌲"),
+    "tempelbezirk": Ort("Tempelbezirk", "⛩️"),
+    "adelsviertel": Ort("Adelsviertel", "🏰"),
+    "uebungsplatz": Ort("Übungsplatz", "🎯"),
+}
+
+
+def waehle_ort(charakter: Charakter) -> str:
+    """Der Spieler wählt aktiv, wohin der Charakter als Nächstes geht."""
+    optionen_ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
+    if charakter.pfad == "Herrscher" or charakter.ruf > 20:
+        optionen_ids.append("adelsviertel")
+
+    beschreibungen = {
+        "taverne": "Ausruhen, Gerüchte hören, eine Gruppe finden",
+        "marktplatz": "Handeln, Tränke, Anwesen, Kutsche",
+        "gildenviertel": "Quest-Brett, Rangaufstieg, Klatsch",
+        "wildnis": "Erkunden, kämpfen, Dungeons",
+        "tempelbezirk": "Segen, Gespräche, Ruhe",
+        "uebungsplatz": "Fähigkeiten trainieren",
+        "adelsviertel": "Politik, Audienzen, Intrigen",
+    }
+    texte = [f"{ORTE[o].icon} {ORTE[o].name} - {beschreibungen[o]}" for o in optionen_ids]
+    idx = menu_waehlen(f"📍 Wohin geht {charakter.name}?", texte)
+    return optionen_ids[idx]
+
+
+# ---------------------------------------------------------------------------
+# Taverne
+# ---------------------------------------------------------------------------
+
+def _taverne_ausruhen(charakter: Charakter, taverne: str) -> Ereignis:
+    kosten = min(charakter.gold, random.randint(3, 12))
+    charakter.gold -= kosten
+    if charakter.hp_aktuell >= charakter.hp_max and charakter.mp_aktuell >= charakter.mp_max:
+        text = f"🛌 {charakter.name} nimmt sich ein Zimmer in '{taverne}' für eine ruhige Nacht - wohlauf und ausgeruht wie eh und je."
+        return Ereignis(text=text)
+    geheilt, mp_regen = charakter.ausruhen()
+    text = f"🛌 {charakter.name} nimmt sich ein Zimmer in '{taverne}' und ruht sich aus. (+{geheilt} HP, +{mp_regen} MP)"
+    return Ereignis(text=text)
+
+
+def _geruecht_pool(charakter: Charakter) -> list[str]:
+    """Je höher der Rang, desto wahrscheinlicher hört man am Tresen etwas über
+    die wachsende Bedrohung durch den Dämonenkönig statt gewöhnlichen Klatsch."""
+    from game.ranks import RANG_REIHENFOLGE
+    idx = RANG_REIHENFOLGE.index(charakter.rang)
+    pool = list(GERUECHTE)
+    if idx >= RANG_REIHENFOLGE.index("E"):
+        pool += GERUECHTE_DAEMON_FRUEH
+    if idx >= RANG_REIHENFOLGE.index("C"):
+        pool += GERUECHTE_DAEMON_MITTEL * 2
+    if idx >= RANG_REIHENFOLGE.index("A"):
+        pool += GERUECHTE_DAEMON_SPAET * 2
+    return pool
+
+
+def _taverne_geruecht(charakter: Charakter, taverne: str) -> Ereignis:
+    text = f"👂 Am Tresen von '{taverne}' schnappt {charakter.name} ein Gerücht auf: {random.choice(_geruecht_pool(charakter))}."
+    if random.random() < 0.15:
+        text += " Eine Schlägerei bricht in der Nähe aus, und ein Krug fliegt haarscharf an ihm vorbei."
+        return Ereignis(text=text, xp=int(5 * charakter.level), schaden=int(charakter.hp_max * 0.05))
+    return Ereignis(text=text, xp=int(5 * charakter.level))
+
+
+def _taverne_trinkspiel(charakter: Charakter, taverne: str) -> Ereignis:
+    einsatz = min(charakter.gold, random.randint(5, 30))
+    if einsatz == 0 or random.random() < 0.5:
+        gewinn = einsatz * 2 if einsatz else random.randint(5, 20)
+        text = f"🍻 {charakter.name} gewinnt ein Trinkspiel in '{taverne}' und heimst {gewinn} Gold ein!"
+        return Ereignis(text=text, gold=gewinn, ruf=1)
+    else:
+        text = f"🍻 {charakter.name} verliert ein Trinkspiel in '{taverne}' und {einsatz} Gold - unter dem Gelächter der Gäste."
+        return Ereignis(text=text, gold=-einsatz)
+
+
+def _taverne_gruppenangebot(charakter: Charakter) -> Ereignis:
+    if len(charakter.begleiter) >= 3:
+        text = f"🍺 Die Gruppe ist bereits voll - {charakter.name} genießt einfach den Abend."
+        return Ereignis(text=text, xp=int(5 * charakter.level))
+
+    vorhandene_rollen = gruppen_rollen(charakter.begleiter)
+    neuer = generiere_begleiter(vorhandene_rollen)
+    beitritt_chance = 0.7
+    if "loyal bis zum Ende" in charakter.persoenlichkeit or "gütig" in charakter.persoenlichkeit:
+        beitritt_chance += 0.15
+
+    if random.random() < beitritt_chance:
+        charakter.begleiter_aufnehmen(neuer)
+        text = (
+            f"🍺 {charakter.name} hält Ausschau nach Mitstreitern und trifft auf {neuer.anzeige()}. "
+            f"Nach ein paar Runden Bier ist die Sache besiegelt: {neuer.name} schließt sich der Gruppe an!"
+        )
+        if ist_ausgewogene_gruppe(charakter.begleiter):
+            text += " Die Gruppe ist damit endlich ausgewogen - Nahkampf, Fernkampf und Unterstützung vereint."
+        return Ereignis(text=text, xp=int(15 * charakter.level), ist_wichtig=True)
+    else:
+        text = f"🍺 {charakter.name} trifft auf {neuer.anzeige()} - doch man wird sich heute nicht einig."
+        return Ereignis(text=text)
+
+
+def besuche_taverne(charakter: Charakter) -> Ereignis:
+    taverne = random.choice(TAVERNEN_NAMEN)
+    optionen = [
+        f"Ausruhen in '{taverne}' (HP & MP)",
+        "Gerüchte am Tresen aufschnappen",
+        "An einem Trinkspiel teilnehmen",
+    ]
+    if len(charakter.begleiter) < 3:
+        optionen.append("Nach Mitstreitern für die Gruppe Ausschau halten")
+
+    idx = menu_waehlen(f"🍺 {charakter.name} betritt '{taverne}'.", optionen)
+    if idx == 0:
+        return _taverne_ausruhen(charakter, taverne)
+    elif idx == 1:
+        return _taverne_geruecht(charakter, taverne)
+    elif idx == 2:
+        return _taverne_trinkspiel(charakter, taverne)
+    else:
+        return _taverne_gruppenangebot(charakter)
+
+
+# ---------------------------------------------------------------------------
+# Marktplatz
+# ---------------------------------------------------------------------------
+
+def _markt_feilschen(charakter: Charakter) -> Ereignis:
+    item = generiere_item(charakter.level)
+    voller_preis = item.wert
+    verhandelt_preis = int(voller_preis * random.uniform(0.55, 0.85))
+    if charakter.gold >= verhandelt_preis:
+        charakter.gold -= verhandelt_preis
+        text = (
+            f"💬 {charakter.name} feilscht um {item.anzeige()} herunter "
+            f"von {voller_preis}g auf {verhandelt_preis}g - und schlägt zu!"
+        )
+        return Ereignis(text=text, item=item)
+    text = f"💬 {charakter.name} findet {item.anzeige()} interessant, doch selbst der Verhandlungspreis von {verhandelt_preis}g übersteigt die Mittel."
+    return Ereignis(text=text)
+
+
+def _markt_traenke_kaufen(charakter: Charakter) -> Ereignis:
+    angebote = [generiere_trank(charakter.level) for _ in range(3)]
+    texte = [t.anzeige() for t in angebote] + ["Nichts kaufen"]
+    idx = menu_waehlen(f"🧪 Der Alchemiestand bietet an ({charakter.gold}g verfügbar):", texte)
+    if idx == len(angebote):
+        return Ereignis(text=f"{charakter.name} verlässt den Stand ohne Kauf.")
+    trank = angebote[idx]
+    if charakter.gold < trank.wert:
+        return Ereignis(text=f"🧪 {trank.anzeige()} übersteigt {charakter.name}s Mittel.")
+    charakter.gold -= trank.wert
+    charakter.traenke.append(trank)
+    return Ereignis(text=f"🧪 {charakter.name} kauft {trank.anzeige()}.")
+
+
+def _markt_verkaufen(charakter: Charakter) -> Ereignis:
+    if not charakter.inventar:
+        return Ereignis(text=f"🎒 {charakter.name}s Inventar ist bereits leer - nichts zu verkaufen.")
+    erloes = sum(i.wert for i in charakter.inventar)
+    anzahl = len(charakter.inventar)
+    charakter.gold += erloes
+    charakter.inventar.clear()
+    return Ereignis(text=f"💰 {charakter.name} verkauft {anzahl} Gegenstände aus dem Inventar für insgesamt {erloes}g.")
+
+
+def _markt_anwesen_kaufen(charakter: Charakter, welt: Welt) -> Ereignis:
+    if charakter.anwesen:
+        return Ereignis(text=f"🏠 {charakter.name} besitzt bereits ein Anwesen in {charakter.anwesen}.")
+    _, stadt = welt.zufaellige_stadt()
+    typ = random.choice(ANWESEN_NAMEN_ZUSATZ)
+    preis = random.randint(600, 1800)
+    if charakter.gold < preis:
+        return Ereignis(text=f"🏠 Ein {typ} in {stadt} kostet {preis}g - das übersteigt die derzeitigen Mittel.")
+    charakter.gold -= preis
+    charakter.anwesen = stadt
+    text = (
+        f"🏠 {charakter.name} erwirbt ein {typ} in {stadt} für {preis}g - "
+        f"ein festes Zuhause für die ganze Gruppe. Rasten dort ist von nun an besonders erholsam."
+    )
+    return Ereignis(text=text, ruf=5, ist_wichtig=True)
+
+
+def _markt_kutsche_kaufen(charakter: Charakter) -> Ereignis:
+    if charakter.hat_kutsche:
+        return Ereignis(text=f"🐎 {charakter.name} besitzt bereits eine eigene Kutsche.")
+    preis = random.randint(250, 500)
+    if charakter.gold < preis:
+        return Ereignis(text=f"🐎 Eine eigene Kutsche kostet {preis}g - noch nicht leistbar.")
+    charakter.gold -= preis
+    charakter.hat_kutsche = True
+    text = f"🐎 {charakter.name} kauft eine eigene Kutsche für {preis}g - Reisen werden von nun an schneller und sicherer."
+    return Ereignis(text=text, ist_wichtig=True)
+
+
+def besuche_marktplatz(charakter: Charakter, welt: Welt) -> Ereignis:
+    optionen = ["Um Ausrüstung feilschen", "Tränke kaufen", "Loot aus dem Inventar verkaufen"]
+    if not charakter.anwesen:
+        optionen.append("Ein Anwesen für die Gruppe kaufen")
+    if not charakter.hat_kutsche:
+        optionen.append("Eine eigene Kutsche kaufen")
+
+    idx = menu_waehlen(f"🏪 {charakter.name} erreicht den Marktplatz. (Gold: {charakter.gold})", optionen)
+    if idx == 0:
+        return _markt_feilschen(charakter)
+    elif idx == 1:
+        return _markt_traenke_kaufen(charakter)
+    elif idx == 2:
+        return _markt_verkaufen(charakter)
+    else:
+        # Reihenfolge der optionalen Einträge respektieren
+        rest = optionen[3:]
+        gewaehlt = rest[idx - 3]
+        if "Anwesen" in gewaehlt:
+            return _markt_anwesen_kaufen(charakter, welt)
+        else:
+            return _markt_kutsche_kaufen(charakter)
+
+
+# ---------------------------------------------------------------------------
+# Gildenviertel
+# ---------------------------------------------------------------------------
+
+def _gilde_klatsch(charakter: Charakter) -> Ereignis:
+    themen = [
+        "wer als Nächstes zum Gildenmeister aufsteigen könnte",
+        "einen besonders lukrativen, aber gefährlichen Auftrag, den bisher niemand angenommen hat",
+        "eine Rivalität zwischen zwei bekannten Abenteurergruppen",
+        "Gerüchte über Korruption unter den Gildenältesten",
+    ]
+    text = f"🗣️ Im Gildenviertel wird getratscht über {random.choice(themen)}. {charakter.name} hört aufmerksam zu."
+    return Ereignis(text=text, xp=int(10 * charakter.level))
+
+
+def _quest_brett_ansehen(charakter: Charakter, welt: Welt) -> Ereignis:
+    quests = generiere_quest_brett(charakter.rang)
+    texte = [
+        f"[Rang {q.rang}] {q.titel} ({q.typ}) - Belohnung: {q.belohnung_gold}g, {q.belohnung_xp} XP"
+        for q in quests
+    ]
+    texte.append("Keine Quest annehmen")
+    idx = menu_waehlen(f"📜 Quest-Brett der Gilde - {charakter.name}s Rang: {charakter.rang}", texte)
+    if idx == len(quests):
+        return Ereignis(text=f"{charakter.name} entscheidet sich, heute keine Quest anzunehmen.")
+
+    quest = quests[idx]
+    _, log, erfolg = quest_abschliessen(charakter, quest)
+    return Ereignis(text=f"📜 {charakter.name} nimmt die Quest an: \"{quest.titel}\"", log=log, ist_wichtig=erfolg)
+
+
+def _rangaufstieg_pruefung(charakter: Charakter) -> Ereignis:
+    ziel = naechster_rang(charakter.rang)
+    # erwartete_kampfkraft liegt bereits ca. 20-25% über der tatsächlichen
+    # Kampfkraft eines Durchschnittscharakters (siehe combat.py) - ein
+    # zusätzlicher 1.1-1.3x-Faktor machte die Rangprüfung, das zentrale
+    # Spielziel, faktisch unbesiegbar. Ein Faktor knapp unter/um 1.0 ist
+    # bereits eine echte, faire Herausforderung.
+    staerke = int(erwartete_kampfkraft(charakter.level) * random.uniform(0.8, 1.0))
+    ergebnis = rundenbasierter_kampf(charakter, f"Prüfungswächter (Rang {ziel})", staerke)
+    einleitung = f"⭐ {charakter.name} tritt zur Rangaufstiegsprüfung für Rang {ziel} an!"
+    log = ergebnis.log[1:] if ergebnis.log else []
+
+    if not charakter.lebendig:
+        return Ereignis(text=einleitung, log=log)
+
+    if ergebnis.sieg:
+        alter_rang = charakter.rang
+        charakter.rang = ziel
+        log.append(f"🎖️ {charakter.name} besteht die Prüfung! Rangaufstieg: {alter_rang} → {ziel}!")
+        return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, ruf=10, log=log, ist_wichtig=True)
+    else:
+        log.append("Die Prüfung ist gescheitert - ein neuer Versuch ist jederzeit möglich, sobald die Voraussetzungen weiter erfüllt sind.")
+        return Ereignis(text=einleitung, xp=ergebnis.xp_gewonnen, log=log)
+
+
+def _daemonenjagd(charakter: Charakter) -> Ereignis:
+    if demonenkoenig_verfuegbar(charakter):
+        optionen = [f"👑💀 {charakter.name} und die Gruppe konfrontieren den Dämonenkönig!", "Sich noch nicht bereit fühlen"]
+        idx = menu_waehlen("Alle Unterlinge sind gefallen. Der Dämonenkönig selbst erwartet euch.", optionen)
+        if idx == 1:
+            return Ereignis(text=f"{charakter.name} sammelt noch einmal Kraft, bevor die letzte Schlacht beginnt.")
+        ergebnis = konfrontiere_daemonenkoenig(charakter)
+        if ergebnis.sieg:
+            charakter.daemonenkoenig_besiegt = True
+        return Ereignis(
+            text=f"👑💀 Die letzte Schlacht beginnt!", log=ergebnis.log,
+            xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, ist_wichtig=True,
+        )
+
+    fuersten = verbleibende_fuersten(charakter)
+    texte = [f"{name} - {beschr}" for name, beschr in fuersten] + ["Zurückkehren"]
+    idx = menu_waehlen(
+        f"👹 Dämonenjagd - {len(charakter.besiegte_daemonenfuersten)}/{len(fuersten) + len(charakter.besiegte_daemonenfuersten)} Unterlinge des Dämonenkönigs gefallen.",
+        texte,
+    )
+    if idx == len(fuersten):
+        return Ereignis(text=f"{charakter.name} verschiebt die Jagd auf ein andermal.")
+
+    ergebnis = jage_daemonenfuersten(charakter, fuersten[idx])
+    return Ereignis(
+        text=f"👹 Die Jagd auf {ergebnis.name} beginnt!", log=ergebnis.log,
+        xp=ergebnis.xp_gewonnen, gold=ergebnis.gold_gewonnen, ist_wichtig=ergebnis.sieg,
+    )
+
+
+def besuche_gildenviertel(charakter: Charakter, welt: Welt) -> Ereignis:
+    optionen = ["Quest-Brett ansehen"]
+    if not charakter.gilde:
+        optionen.append("Einer Gilde beitreten")
+    else:
+        optionen.append("Auftrag vom Gildenmeister annehmen")
+    optionen.append("Klatsch und Gerüchte hören")
+    optionen.append("Gezielt einen Dungeon-Einsatz suchen")
+
+    rangaufstieg_verfuegbar = kann_aufsteigen(charakter)
+    if rangaufstieg_verfuegbar:
+        optionen.append(f"⭐ Rangaufstiegsprüfung ablegen (Rang {naechster_rang(charakter.rang)})")
+    if daemonenjagd_verfuegbar(charakter) and not charakter.daemonenkoenig_besiegt:
+        optionen.append("👹 Dämonenjagd - das ultimative Ziel")
+
+    idx = menu_waehlen(
+        f"🏛️ {charakter.name} betritt das Gildenviertel. (Rang: {charakter.rang} - {anforderung_text(charakter)})",
+        optionen,
+    )
+    gewaehlt = optionen[idx]
+    if gewaehlt == "Quest-Brett ansehen":
+        return _quest_brett_ansehen(charakter, welt)
+    elif gewaehlt in ("Einer Gilde beitreten", "Auftrag vom Gildenmeister annehmen"):
+        return ereignis_gilde(charakter, welt)
+    elif gewaehlt == "Klatsch und Gerüchte hören":
+        return _gilde_klatsch(charakter)
+    elif gewaehlt == "Gezielt einen Dungeon-Einsatz suchen":
+        return ereignis_dungeon(charakter)
+    elif gewaehlt == "👹 Dämonenjagd - das ultimative Ziel":
+        return _daemonenjagd(charakter)
+    else:
+        return _rangaufstieg_pruefung(charakter)
+
+
+# ---------------------------------------------------------------------------
+# Wildnis
+# ---------------------------------------------------------------------------
+
+def _wildnis_erkunden(charakter: Charakter, welt: Welt) -> Ereignis:
+    return zufallsereignis(charakter, welt)  # Kampf, Dungeon, Dämon, Konflikt, Legendäres etc.
+
+
+def _wildnis_reisende(charakter: Charakter) -> Ereignis:
+    name = random.choice(NPC_VORNAMEN)
+    text = f"🧳 Auf dem Weg begegnet {charakter.name} dem Reisenden {name}. Man teilt eine Mahlzeit und Geschichten von der Straße."
+    if random.random() < 0.3:
+        item = generiere_item(charakter.level)
+        text += f" Zum Abschied schenkt {name} ihm {item.anzeige()}."
+        return Ereignis(text=text, xp=int(10 * charakter.level), ruf=1, item=item)
+    return Ereignis(text=text, xp=int(10 * charakter.level), ruf=1)
+
+
+def besuche_wildnis(charakter: Charakter, welt: Welt) -> Ereignis:
+    optionen = [
+        "Das Gebiet erkunden (Kämpfe, Funde, alles ist möglich)",
+        "Gezielt einen Dungeon aufsuchen",
+        "Auf Reisende und Gesellschaft hoffen",
+    ]
+    idx = menu_waehlen(f"🌲 {charakter.name} bricht in die Wildnis auf.", optionen)
+    if idx == 0:
+        return _wildnis_erkunden(charakter, welt)
+    elif idx == 1:
+        return ereignis_dungeon(charakter)
+    else:
+        return _wildnis_reisende(charakter)
+
+
+# ---------------------------------------------------------------------------
+# Tempelbezirk
+# ---------------------------------------------------------------------------
+
+def _tempel_segen(charakter: Charakter) -> Ereignis:
+    geheilt, mp_regen = charakter.ausruhen()
+    text = f"🙏 {charakter.name} betet im Tempelbezirk und erhält einen Segen. (+{geheilt} HP, +{mp_regen} MP)"
+    return Ereignis(text=text, ruf=2)
+
+
+def _tempel_spende(charakter: Charakter) -> Ereignis:
+    if charakter.gold < 10:
+        text = f"🙏 {charakter.name} würde gerne spenden, doch der Geldbeutel ist zu leer."
+        return Ereignis(text=text)
+    spende = min(charakter.gold, random.randint(10, 50))
+    text = f"🙏 {charakter.name} spendet {spende} Gold für die Armen der Stadt."
+    return Ereignis(text=text, gold=-spende, ruf=6)
+
+
+def _tempel_priester(charakter: Charakter) -> Ereignis:
+    name = random.choice(NPC_VORNAMEN)
+    text = f"⛩️ Priester(in) {name} führt ein langes Gespräch mit {charakter.name} über Schicksal und Bestimmung."
+    return Ereignis(text=text, xp=int(20 * charakter.level))
+
+
+def besuche_tempelbezirk(charakter: Charakter) -> Ereignis:
+    optionen = ["Beten und einen Segen erhalten (HP & MP)", "Für die Armen spenden", "Mit einem Priester sprechen"]
+    idx = menu_waehlen(f"⛩️ {charakter.name} betritt den Tempelbezirk.", optionen)
+    if idx == 0:
+        return _tempel_segen(charakter)
+    elif idx == 1:
+        return _tempel_spende(charakter)
+    else:
+        return _tempel_priester(charakter)
+
+
+# ---------------------------------------------------------------------------
+# Adelsviertel (v.a. relevant für den Herrscher-Pfad)
+# ---------------------------------------------------------------------------
+
+def _adel_audienz(charakter: Charakter, welt: Welt) -> Ereignis:
+    koenigreich = welt.zufaelliges_koenigreich()
+    text = f"🏰 {charakter.name} erhält eine Audienz bei Vertretern von {koenigreich.name}."
+    if random.random() < 0.6:
+        koenigreich.beziehung_zum_spieler += random.randint(5, 15)
+        text += " Das Gespräch verläuft überraschend gut."
+        return Ereignis(text=text, ruf=5, xp=int(20 * charakter.level))
+    text += " Die Atmosphäre bleibt frostig."
+    return Ereignis(text=text, xp=int(10 * charakter.level))
+
+
+def _adel_intrige(charakter: Charakter) -> Ereignis:
+    text = f"🏰 {charakter.name} wird Zeuge einer höfischen Intrige und muss entscheiden, ob er sie meldet oder für sich behält."
+    if random.random() < 0.5:
+        text += " Er meldet sie - und gewinnt das Vertrauen des Hofes."
+        return Ereignis(text=text, ruf=8, xp=int(20 * charakter.level))
+    text += " Er behält sein Wissen für sich - eine mächtige Karte für die Zukunft."
+    return Ereignis(text=text, gold=random.randint(20, 80), xp=int(15 * charakter.level))
+
+
+def besuche_adelsviertel(charakter: Charakter, welt: Welt) -> Ereignis:
+    optionen = ["Um eine Audienz bitten", "Sich im Hof umhören"]
+    idx = menu_waehlen(f"🏰 {charakter.name} betritt das Adelsviertel.", optionen)
+    if idx == 0:
+        return _adel_audienz(charakter, welt)
+    return _adel_intrige(charakter)
+
+
+# ---------------------------------------------------------------------------
+# Übungsplatz
+# ---------------------------------------------------------------------------
+
+def _spezialisierung_waehlen(charakter: Charakter) -> Ereignis:
+    pfad = TANK_PFADE[charakter.klasse_id]
+    offensiv_tier = charakter.klasse.tier_fuer_level(30)
+    optionen = [
+        f"Dem Weg der Klinge treu bleiben: {offensiv_tier.name} - {offensiv_tier.beschreibung}",
+        f"Zum Beschützer der Gruppe werden: {pfad['tier30'].name} - {pfad['tier30'].beschreibung}",
+    ]
+    idx = menu_waehlen(
+        f"⚔️ {charakter.name} steht an einem Wendepunkt der Ausbildung. Welcher Weg soll es sein?",
+        optionen,
+    )
+    if idx == 1:
+        charakter.spezialisierung = "Tank"
+        text = (
+            f"🛡️ {charakter.name} wählt den Weg des Beschützers und wird zu: {pfad['tier30'].name}! "
+            f"Von nun an zieht {charakter.name} im Kampf gezielt Aufmerksamkeit auf sich und trotzt Schlägen, "
+            f"die andere niederstrecken würden."
+        )
+        return Ereignis(text=text, ist_wichtig=True)
+    charakter.spezialisierung = "Offensiv"
+    text = f"⚔️ {charakter.name} bleibt dem Weg der Klinge treu und wird zu: {offensiv_tier.name}!"
+    return Ereignis(text=text, ist_wichtig=True)
+
+
+def besuche_uebungsplatz(charakter: Charakter) -> Ereignis:
+    spezialisierung_verfuegbar = (
+        charakter.level >= 30 and charakter.klasse_id in TANK_PFADE and charakter.spezialisierung is None
+    )
+    if spezialisierung_verfuegbar:
+        optionen = ["Trainieren", "⚔️ Deine Spezialisierung wählen"]
+        idx = menu_waehlen(f"🎯 {charakter.name} erreicht den Übungsplatz.", optionen)
+        if idx == 1:
+            return _spezialisierung_waehlen(charakter)
+
+    skill_meldung = None
+    if charakter.gelernte_skills:
+        for _ in range(random.randint(1, 2)):
+            m = charakter.zufaelligen_skill_ueben()
+            if m:
+                skill_meldung = m
+    text = f"🎯 {charakter.name} verbringt den Tag mit hartem Training auf dem Übungsplatz."
+    if skill_meldung:
+        text += f" {skill_meldung}"
+    return Ereignis(text=text, xp=int(18 * charakter.level))
+
+
+# ---------------------------------------------------------------------------
+# Master-Dispatcher
+# ---------------------------------------------------------------------------
+
+def besuche_ort(charakter: Charakter, welt: Welt) -> tuple[str, Ereignis]:
+    ort_id = waehle_ort(charakter)
+    ort = ORTE[ort_id]
+
+    if ort_id == "taverne":
+        ereignis = besuche_taverne(charakter)
+    elif ort_id == "marktplatz":
+        ereignis = besuche_marktplatz(charakter, welt)
+    elif ort_id == "gildenviertel":
+        ereignis = besuche_gildenviertel(charakter, welt)
+    elif ort_id == "wildnis":
+        ereignis = besuche_wildnis(charakter, welt)
+    elif ort_id == "tempelbezirk":
+        ereignis = besuche_tempelbezirk(charakter)
+    elif ort_id == "adelsviertel":
+        ereignis = besuche_adelsviertel(charakter, welt)
+    else:
+        ereignis = besuche_uebungsplatz(charakter)
+
+    return f"{ort.icon} {ort.name}", ereignis
