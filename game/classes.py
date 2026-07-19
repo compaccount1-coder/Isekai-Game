@@ -258,6 +258,7 @@ KLASSEN: dict[str, Klasse] = {
             Skill("Göttlicher Zorn", "Ein seltener offensiver Ausbruch heiliger Energie."),
             Skill("Läuterndes Feuer", "Heiliges Feuer, das Untote und Dämonen besonders hart trifft."),
             Skill("Segen der Standhaftigkeit", "Schützt die Gruppe davor, von einem einzelnen Treffer niedergestreckt zu werden."),
+            Skill("Wort der Genesung", "Ein Gebet, das die gesamte Gruppe auf einmal von ihren Wunden befreit."),
         ],
     ),
     "alchemist": Klasse(
@@ -302,7 +303,8 @@ TANK_PFADE: dict[str, dict] = {
         "skills": [
             Skill("Provokation", "Zwingst jeden Feind, sich auf dich zu konzentrieren."),
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
-            Skill("Letzte Bastion", "Du stehst noch, wo andere längst gefallen wären."),
+            Skill("Letzte Bastion", "Du stehst noch, wo andere längst gefallen wären - schützt die gesamte Gruppe über mehrere Runden."),
+            Skill("Dornenpanzer", "Ein gepanzerter Schild, der eingehende Schläge an den Angreifer zurückwirft."),
         ],
     },
     "paladin": {
@@ -311,7 +313,8 @@ TANK_PFADE: dict[str, dict] = {
         "skills": [
             Skill("Geweihter Schild", "Ein Schild aus reinem Licht, das jeden Hieb abfängt."),
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
-            Skill("Märtyrergelübde", "Du erträgst, was eigentlich deine Verbündeten treffen sollte."),
+            Skill("Märtyrergelübde", "Du erträgst, was eigentlich deine Verbündeten treffen sollte - schützt die gesamte Gruppe über mehrere Runden."),
+            Skill("Vergeltungsschild", "Ein Schild aus heiligem Zorn, das erlittene Schläge an den Angreifer zurückgibt."),
         ],
     },
     "moench": {
@@ -320,7 +323,8 @@ TANK_PFADE: dict[str, dict] = {
         "skills": [
             Skill("Steinerne Haltung", "Eine Kampfstellung, die jeden Angriff ins Leere laufen lässt."),
             Skill("Eiserne Deckung", "Reduziert erlittenen Schaden drastisch für die Dauer des Kampfes."),
-            Skill("Unbeugsamer Atem", "Du sammelst dich, wo andere zusammenbrechen würden."),
+            Skill("Unbeugsamer Atem", "Du sammelst dich, wo andere zusammenbrechen würden - schützt die gesamte Gruppe über mehrere Runden."),
+            Skill("Konterhaltung", "Eine Kampfhaltung, die jeden Treffer sofort mit gleicher Härte erwidert."),
         ],
     },
 }
@@ -340,19 +344,22 @@ def klasse_hat_tank_pfad(klasse_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 SKILL_EFFEKT: dict[str, str] = {
-    # Heilung (stellt HP wieder her)
+    # Heilung (stellt HP wieder her, Ziel wählbar)
     "Lebensentzug": "heilung",
     "Läuterung": "heilung",
     "Naturheilung": "heilung",
     "Innere Ruhe": "heilung",
     "Heilendes Licht": "heilung",
     "Heiltrank werfen": "heilung",
-    # Notheilung (starke Heilung für kritische Momente)
+    # Notheilung (starke Heilung für kritische Momente, Ziel wählbar)
     "Wiederauferstehung": "notheilung",
     "Wiederbelebung": "notheilung",
     "Lied der Wiedergeburt": "notheilung",
     "Elixier der letzten Stunde": "notheilung",
-    # Schild (reduziert erlittenen Schaden diese Runde)
+    # Gruppenheilung (heilt die gesamte Gruppe auf einmal) - bewusst nur
+    # vereinzelt vergeben, nicht jeder Heilzauber soll die ganze Gruppe treffen.
+    "Wort der Genesung": "gruppenheilung",
+    # Schild (reduziert erlittenen Schaden diese Runde, Ziel wählbar)
     "Knochenpanzer": "schild",
     "Schildwall": "schild",
     "Unbeugsamer Wille": "schild",
@@ -368,15 +375,22 @@ SKILL_EFFEKT: dict[str, str] = {
     "Verwandlungstrank": "schild",
     "Chor der Standhaften": "schild",
     "Eiserne Deckung": "schild",
-    "Letzte Bastion": "schild",
     "Geweihter Schild": "schild",
-    "Märtyrergelübde": "schild",
     "Steinerne Haltung": "schild",
-    "Unbeugsamer Atem": "schild",
+    # Gruppenschild (schützt für mehrere Runden die gesamte Gruppe statt nur
+    # den Anwender - das "sei vorsichtig" gilt hier: bewusst nur 1 pro
+    # Tank-Pfad, mit spürbar, aber begrenzt langer Wirkung).
+    "Letzte Bastion": "gruppenschild",
+    "Märtyrergelübde": "gruppenschild",
+    "Unbeugsamer Atem": "gruppenschild",
+    # Reflexion (gibt einen Teil des erlittenen Schadens an den Angreifer zurück)
+    "Dornenpanzer": "reflexion",
+    "Vergeltungsschild": "reflexion",
+    "Konterhaltung": "reflexion",
     # Aggro (zieht Aufmerksamkeit auf sich, wirkt wie ein Schild)
     "Spott": "aggro",
     "Provokation": "aggro",
-    # Verstärkung (erhöht den nächsten Angriff der Gruppe)
+    # Verstärkung (erhöht den nächsten Angriff, Ziel wählbar)
     "Kriegsschrei": "buff",
     "Kreaturenbund": "buff",
     "Kampflied": "buff",
@@ -385,14 +399,47 @@ SKILL_EFFEKT: dict[str, str] = {
     "Gruppensegen": "buff",
     "Stärkungselixier": "buff",
     "Katalysator": "buff",
-    # Schwächung (mindert die Kraft des Gegners)
+    # Schwächung (mindert die Kraft eines Gegners, Ziel wählbar - oder aller
+    # Gegner, siehe SKILL_AOE)
     "Zeitverzerrung": "debuff",
     "Manaentzug": "debuff",
     "Schlaflied": "debuff",
     "Massenbezauberung": "debuff",
     "Spöttisches Lied": "debuff",
+    # Schaden + Schwächung zugleich (z.B. Gift-/Seuchenwolken)
+    "Giftnebel": "schaden_debuff",
+    "Seuchenwolke": "schaden_debuff",
+}
+
+# Skills, die alle Gegner gleichzeitig treffen statt nur einen einzelnen -
+# Fernkämpfer bekommen so echte Flächenangriffe, Unterstützer echte
+# Flächen-Schwächungszauber.
+SKILL_AOE: set[str] = {
+    "Pfeilhagel", "Sturm der tausend Pfeile", "Feuerball", "Meteor",
+    "Massenbezauberung", "Giftnebel", "Seuchenwolke",
+}
+
+# Wie viele Kampfrunden ein Effekt anhält (nicht gelistete Skills wirken nur
+# die eine Runde, in der sie eingesetzt werden). Bewusst nur wenige, klar
+# tank-/notfallthematische Fähigkeiten mit echter Mehrrunden-Dauer, damit
+# das nicht jede kleine Aktion zu einem Dauerbuff aufbläht.
+SKILL_DAUER: dict[str, int] = {
+    "Letzte Bastion": 3,
+    "Märtyrergelübde": 3,
+    "Unbeugsamer Atem": 3,
+    "Dornenpanzer": 3,
+    "Vergeltungsschild": 3,
+    "Konterhaltung": 3,
 }
 
 
 def skill_effekt(skill_name: str) -> str:
     return SKILL_EFFEKT.get(skill_name, "schaden")
+
+
+def skill_ist_aoe(skill_name: str) -> bool:
+    return skill_name in SKILL_AOE
+
+
+def skill_dauer(skill_name: str) -> int:
+    return SKILL_DAUER.get(skill_name, 1)

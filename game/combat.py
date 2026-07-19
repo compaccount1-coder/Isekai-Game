@@ -1,16 +1,18 @@
 """Rundenbasiertes Kampfsystem: der Charakter setzt in jeder Runde eine seiner
-erlernten Fähigkeiten ein, sichtbar mit Schaden und verbleibenden HP beider Seiten.
-Jeder Skill wirkt gemäß seiner tatsächlichen Thematik (siehe classes.SKILL_EFFEKT):
-Heilzauber heilen, Schild-/Segensprüche schützen oder verstärken, Schwächungs-
-zauber mindern den Gegner - nicht jeder Skill teilt einfach nur Schaden aus.
+erlernten Fähigkeiten ein, sichtbar mit Schaden und verbleibenden HP aller
+Beteiligten. Jeder Skill wirkt gemäß seiner tatsächlichen Thematik (siehe
+classes.SKILL_EFFEKT): Heilzauber heilen, Segen verstärken, Schilde/Reflexion
+schützen (teils über mehrere Runden und teils für die gesamte Gruppe),
+Schwächungszauber mindern den Gegner - manche Fähigkeiten treffen dabei
+gezielt ein Ziel, andere (siehe SKILL_AOE) alle Gegner bzw. die ganze Gruppe
+auf einmal. Kämpfe können gegen mehrere Gegner gleichzeitig stattfinden.
 Begleiter kämpfen autonom mit und handeln passend zu ihrer Rolle und dem
-gewürfelten Skill: Nahkämpfer binden die Aufmerksamkeit des Gegners, Fernkämpfer
-greifen zusätzlich an, Unterstützer setzen ihre Fähigkeit thematisch passend ein."""
+gewürfelten Skill."""
 
 import random
 from dataclasses import dataclass, field
 
-from game.classes import KLASSEN, skill_effekt
+from game.classes import KLASSEN, skill_dauer, skill_effekt, skill_ist_aoe
 
 GEGNER_NAMEN_SCHWACH = [
     "Wilder Wolf", "Riesenspinne", "Wegelagerer", "Verrotteter Zombie", "Kobold-Plünderer",
@@ -107,6 +109,21 @@ def zufaelliger_gegner(spieler_level: int) -> tuple[str, int]:
     return random.choice(pool), staerke
 
 
+def zufaelliger_gegner_gruppe(spieler_level: int) -> list[tuple[str, int]]:
+    """Meistens ein einzelner Gegner, gelegentlich eine Gruppe aus 2-3 - deren
+    Einzelstärke wird deutlich reduziert, damit die GESAMTE Bedrohung nicht
+    einfach durch die Anzahl vervielfacht wird (mehrere Gegner greifen pro
+    Runde je einmal an, das allein erhöht das Risiko schon spürbar)."""
+    pool, basis_staerke = _gegnerpool(spieler_level)
+    anzahl = random.choices([1, 2, 3], weights=[55, 30, 15], k=1)[0]
+    if anzahl == 1:
+        return [(random.choice(pool), basis_staerke)]
+    faktor = {2: 0.55, 3: 0.42}[anzahl]
+    pro_gegner_staerke = max(10, int(basis_staerke * faktor))
+    namen = random.sample(pool, anzahl) if len(pool) >= anzahl else [random.choice(pool) for _ in range(anzahl)]
+    return [(name, pro_gegner_staerke) for name in namen]
+
+
 def erwartete_kampfkraft(level: int) -> int:
     """Grobe Schätzung der Kampfkraft eines durchschnittlichen Charakters auf
     diesem Level - Referenzwert, um Dungeon- und Sonderbegegnungen proportional
@@ -156,22 +173,25 @@ def _waehle_skill_fuer_runde(charakter) -> tuple[str, int]:
 
 
 def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
-    """Lässt jeden Begleiter autonom eine zu seiner Rolle UND dem gewürfelten
-    Skill passende Aktion ausführen. Nahkämpfer binden als Tank die
-    Aufmerksamkeit des Gegners; Fernkämpfer greifen zusätzlich an;
-    Unterstützer setzen ihre Fähigkeit gemäß deren tatsächlicher Wirkung ein
-    (siehe classes.SKILL_EFFEKT) - ein Heilzauber heilt, ein Schwächungszauber
-    schwächt den Gegner, ein Segen verstärkt den nächsten Angriff, statt dass
-    jeder Unterstützer-Skill unabhängig von seiner Thematik einfach nur heilt.
-    Gibt die daraus resultierende Schadensreduktion für den kommenden
-    Gegnerangriff zurück."""
+    """Lässt jeden (nicht niedergeschlagenen) Begleiter autonom eine zu seiner
+    Rolle UND dem gewürfelten Skill passende Aktion ausführen. Nahkämpfer
+    binden als Tank die Aufmerksamkeit des Gegners; Fernkämpfer greifen
+    zusätzlich an; Unterstützer setzen ihre Fähigkeit gemäß deren
+    tatsächlicher Wirkung ein (siehe classes.SKILL_EFFEKT). Begleiter zielen
+    dabei stets auf den ersten lebenden Gegner bzw. die gesamte Gruppe -
+    taktische Zielwahl bleibt dem Spieler vorbehalten, Begleiter kümmern sich
+    eigenständig. Gibt die daraus resultierende Schadensreduktion für den
+    kommenden Gegnerangriff zurück."""
     charakter = kampf.charakter
-    gegner = kampf.gegner
     schadensreduktion = 0.0
     basis_pro_begleiter = charakter.kampfkraft_basis() * 0.18
     for b in charakter.begleiter:
-        if gegner.hp <= 0:
+        if b.niedergeschlagen:
+            continue
+        gegner_lebend = kampf.gegner_lebend()
+        if not gegner_lebend:
             break
+        gegner = gegner_lebend[0]
         anteil = basis_pro_begleiter * (b.loyalitaet / 100) * (b.level / max(1, charakter.level))
         if anteil <= 1:
             continue
@@ -188,14 +208,21 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
             if effekt in ("heilung", "notheilung"):
                 if charakter.hp_aktuell < charakter.hp_max:
                     mult = 1.6 if effekt == "notheilung" else 1.0
-                    heilung = min(charakter.hp_max - charakter.hp_aktuell, max(1, int(anteil * random.uniform(0.8, 1.2) * mult)))
-                    charakter.hp_aktuell += heilung
+                    heilung = charakter.heilen(max(1, int(anteil * random.uniform(0.8, 1.2) * mult)))
                     log.append(f"   {b.name} setzt {skill.name} ein und heilt {charakter.name} um {heilung} HP. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
                 else:
                     log.append(f"   {b.name} setzt {skill.name} ein, doch {charakter.name} braucht keine Heilung.")
-            elif effekt == "schaden":
+            elif effekt == "gruppenheilung":
+                gesamt = charakter.heilen(max(1, int(anteil * random.uniform(0.5, 0.8))))
+                for andere in charakter.begleiter:
+                    if andere is not b and not andere.niedergeschlagen:
+                        gesamt += andere.heilen(max(1, int(anteil * random.uniform(0.4, 0.7))))
+                log.append(f"   {b.name} setzt {skill.name} ein und heilt die gesamte Gruppe (insgesamt {gesamt} HP).")
+            elif effekt in ("schaden", "schaden_debuff"):
                 schaden = max(1, int(anteil * random.uniform(0.7, 1.0)))
                 gegner.hp = max(0, gegner.hp - schaden)
+                if effekt == "schaden_debuff":
+                    gegner.angriffskraft = max(1, int(gegner.angriffskraft * 0.92))
                 log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
             elif effekt == "buff":
                 kampf.spieler_bonus_naechste_runde += 0.15
@@ -203,7 +230,7 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
             elif effekt == "debuff":
                 gegner.angriffskraft = max(1, int(gegner.angriffskraft * 0.92))
                 log.append(f"   {b.name} setzt {skill.name} ein und schwächt {gegner.name}.")
-            else:  # schild / aggro
+            else:  # schild / aggro / gruppenschild / reflexion (Begleiter wirken diese nur einmalig, kein Dauerzustand)
                 schadensreduktion += 0.15
                 log.append(f"   {b.name} setzt {skill.name} ein und schirmt {charakter.name} ab.")
         else:  # Nahkämpfer - zieht als Tank die Aufmerksamkeit auf sich
@@ -231,21 +258,42 @@ class Kampfergebnis:
 class Kampf:
     """Ein rundenbasierter Kampf als eigener Zustand statt einer einzigen,
     bis zum Ende durchlaufenden Funktion - so kann der Spieler zwischen den
-    Runden selbst entscheiden, welche Fähigkeit sein Charakter einsetzt,
-    egal ob über ein Terminal-Menü (CLI) oder Buttons (GUI)."""
+    Runden selbst entscheiden, welche Fähigkeit sein Charakter einsetzt und
+    (falls nötig) wen er damit anvisiert, egal ob über ein Terminal-Menü (CLI)
+    oder Buttons (GUI). Unterstützt mehrere gleichzeitige Gegner."""
 
-    def __init__(self, charakter, gegner: Kampfgegner, gegner_staerke_basis: int, max_runden: int = 8):
+    def __init__(self, charakter, gegnergruppe: list[Kampfgegner], gegner_staerke_basis: int, max_runden: int = 8):
         self.charakter = charakter
-        self.gegner = gegner
+        self.gegnergruppe = gegnergruppe
         self.gegner_staerke_basis = gegner_staerke_basis
         self.max_runden = max_runden
         self.runde = 0
-        self.log: list[str] = [f"⚔️ {charakter.name} trifft auf {gegner.name} ({gegner.hp} HP)!"]
+        if len(gegnergruppe) > 1:
+            namen = " und ".join(g.name for g in gegnergruppe)
+            gesamt_hp = sum(g.hp for g in gegnergruppe)
+            self.log: list[str] = [f"⚔️ {charakter.name} trifft auf {namen} ({gesamt_hp} HP gesamt, {len(gegnergruppe)} Gegner)!"]
+        else:
+            self.log = [f"⚔️ {charakter.name} trifft auf {gegnergruppe[0].name} ({gegnergruppe[0].hp} HP)!"]
         self.beendet = False
         self.sieg = False
-        # Von Verstärkungs-Fähigkeiten (eigene oder von Begleitern) gesetzt -
-        # erhöht den Schaden des NÄCHSTEN eigenen Angriffs und wird danach verbraucht.
+        # Von Verstärkungs-Fähigkeiten gesetzt - erhöht den Schaden des
+        # NÄCHSTEN eigenen Angriffs und wird danach verbraucht.
         self.spieler_bonus_naechste_runde = 0.0
+        # Schild-/Gruppenschild-Zustand: schild_runden > 0 heißt aktiv, wirkt
+        # auf JEDEN Treffer der Gruppe (nicht nur den Anwender), solange aktiv.
+        self.schild_runden = 0
+        self.schild_staerke = 0.0
+        # Reflexion: ein Teil des erlittenen Schadens geht an den Angreifer zurück.
+        self.reflexion_runden = 0
+        self.reflexion_staerke = 0.0
+
+    def gegner_lebend(self) -> list[Kampfgegner]:
+        return [g for g in self.gegnergruppe if g.hp > 0]
+
+    def verbuendete_lebend(self) -> list:
+        """Charakter zuerst, danach alle nicht niedergeschlagenen Begleiter -
+        mögliche Ziele für Heil-/Verstärkungs-/Schutzfähigkeiten."""
+        return [self.charakter] + [b for b in self.charakter.begleiter if not b.niedergeschlagen]
 
     def verfuegbare_aktionen(self) -> list[str]:
         """Die Fähigkeiten, aus denen der Spieler diese Runde wählen kann."""
@@ -253,19 +301,27 @@ class Kampf:
             return ["Angriff"]
         return list(self.charakter.gelernte_skills.keys())
 
-    def runde_ausfuehren(self, gewaehlte_aktion: str) -> list[str]:
+    def ziel_typ(self, aktion: str) -> str | None:
+        """Gibt zurück, welche Zielauswahl vor dem Einsatz einer Fähigkeit
+        nötig ist: 'gegner' (einzelnen Gegner wählen), 'verbuendeter'
+        (Verbündeten wählen), oder None (kein Auswahlschritt nötig - z.B.
+        Selbstziel, Flächeneffekt oder nur ein gültiges Ziel vorhanden)."""
+        if aktion != "Angriff" and skill_ist_aoe(aktion):
+            return None
+        effekt = skill_effekt(aktion) if aktion != "Angriff" else "schaden"
+        if effekt in ("schaden", "debuff", "schaden_debuff"):
+            return "gegner" if len(self.gegner_lebend()) > 1 else None
+        if effekt in ("heilung", "notheilung", "buff", "schild", "aggro", "reflexion"):
+            return "verbuendeter" if len(self.charakter.begleiter) > 0 else None
+        return None  # gruppenschild/gruppenheilung wirken automatisch auf alle
+
+    def runde_ausfuehren(self, gewaehlte_aktion: str, gegner_ziel: Kampfgegner | None = None, verbuendeter_ziel=None) -> list[str]:
         """Führt eine komplette Kampfrunde mit der vom Spieler gewählten
-        Fähigkeit aus. Die Wirkung richtet sich nach der tatsächlichen
-        Thematik des Skills (siehe classes.SKILL_EFFEKT): Angriffs-Skills
-        schaden dem Gegner, Heilzauber heilen den Charakter, Segen verstärken
-        den nächsten Angriff, Schilde mindern den kommenden Gegenschlag,
-        Schwächungszauber mindern die Kraft des Gegners. Gibt die neuen
-        Log-Zeilen zurück und setzt self.beendet/self.sieg, sobald der Kampf
-        danach entschieden ist."""
+        Fähigkeit (und ggf. Ziel) aus. Gibt die neuen Log-Zeilen zurück und
+        setzt self.beendet/self.sieg, sobald der Kampf danach entschieden ist."""
         if self.beendet:
             return []
         charakter = self.charakter
-        gegner = self.gegner
         zeilen = [f"-- Runde {self.runde + 1} --"]
         self.runde += 1
 
@@ -281,84 +337,176 @@ class Kampf:
             skill_level = 0
 
         effekt = skill_effekt(gewaehlte_aktion) if gewaehlte_aktion != "Angriff" else "schaden"
+        aoe = gewaehlte_aktion != "Angriff" and skill_ist_aoe(gewaehlte_aktion)
         kampfkraft_basis = charakter.kampfkraft_basis()
-        eigener_schild_diese_runde = 0.0
 
-        if effekt == "schaden":
+        if effekt in ("schaden", "schaden_debuff"):
             bonus = 1.0 + self.spieler_bonus_naechste_runde
             self.spieler_bonus_naechste_runde = 0.0
-            schaden = int(kampfkraft_basis * random.uniform(0.22, 0.32) * (1 + skill_level * 0.06) * bonus)
-            kritisch = random.random() < 0.12
-            if kritisch:
-                schaden = int(schaden * 1.6)
-            gegner.hp = max(0, gegner.hp - schaden)
-            krit_text = " (KRITISCHER TREFFER!)" if kritisch else ""
-            verstaerkt_text = " (VERSTÄRKT!)" if bonus > 1.0 else ""
-            if gewaehlte_aktion == "Angriff":
-                zeilen.append(f"   {charakter.name} greift an{krit_text}{verstaerkt_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+            lebend = self.gegner_lebend()
+            if aoe:
+                ziele = lebend
+            elif gegner_ziel is not None and gegner_ziel.hp > 0:
+                ziele = [gegner_ziel]
             else:
-                zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein{krit_text}{verstaerkt_text} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+                ziele = lebend[:1]
+            mehrfach_faktor = 0.55 if len(ziele) > 1 else 1.0
+            aktionsname = "greift an" if gewaehlte_aktion == "Angriff" else f"setzt {gewaehlte_aktion} ein"
+            for ziel in ziele:
+                schaden = int(kampfkraft_basis * random.uniform(0.22, 0.32) * (1 + skill_level * 0.06) * bonus * mehrfach_faktor)
+                kritisch = random.random() < 0.12
+                if kritisch:
+                    schaden = int(schaden * 1.6)
+                ziel.hp = max(0, ziel.hp - schaden)
+                if effekt == "schaden_debuff":
+                    ziel.angriffskraft = max(1, int(ziel.angriffskraft * 0.9))
+                krit_text = " (KRITISCHER TREFFER!)" if kritisch else ""
+                verstaerkt_text = " (VERSTÄRKT!)" if bonus > 1.0 else ""
+                zeilen.append(f"   {charakter.name} {aktionsname}{krit_text}{verstaerkt_text} - {schaden} Schaden an {ziel.name}. [{ziel.name}: {ziel.hp}/{ziel.hp_max} HP]")
+                if ziel.hp <= 0:
+                    zeilen.append(f"   💀 {ziel.name} ist besiegt!")
         elif effekt in ("heilung", "notheilung"):
+            empfaenger = verbuendeter_ziel if verbuendeter_ziel is not None else charakter
             basis_anteil = 0.3 if effekt == "notheilung" else 0.16
-            heilung = min(charakter.hp_max - charakter.hp_aktuell, max(1, int(charakter.hp_max * (basis_anteil + skill_level * 0.02))))
-            charakter.hp_aktuell += heilung
-            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt sich um {heilung} HP. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
+            heilmenge = max(1, int(empfaenger.hp_max * (basis_anteil + skill_level * 0.02)))
+            geheilt = empfaenger.heilen(heilmenge)
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt {empfaenger.name} um {geheilt} HP. [{empfaenger.name}: {empfaenger.hp_aktuell}/{empfaenger.hp_max} HP]")
+        elif effekt == "gruppenheilung":
+            gesamt = 0
+            for ziel in self.verbuendete_lebend():
+                gesamt += ziel.heilen(max(1, int(ziel.hp_max * (0.18 + skill_level * 0.015))))
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt die gesamte Gruppe (insgesamt {gesamt} HP).")
         elif effekt == "buff":
-            self.spieler_bonus_naechste_runde += 0.2 + skill_level * 0.02
-            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein - der nächste Angriff wird spürbar verstärkt.")
+            ziel = verbuendeter_ziel if verbuendeter_ziel is not None else charakter
+            bonus_wert = 0.2 + skill_level * 0.02
+            if ziel is charakter:
+                self.spieler_bonus_naechste_runde += bonus_wert
+                zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein - der nächste eigene Angriff wird spürbar verstärkt.")
+            else:
+                ziel.loyalitaet = min(100, ziel.loyalitaet + 0)  # keine Nebenwirkung, nur Marker für Lesbarkeit
+                zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und beflügelt {ziel.name} für die nächste Aktion.")
         elif effekt in ("schild", "aggro"):
-            eigener_schild_diese_runde = 0.2 + skill_level * 0.015
+            self.schild_runden = max(self.schild_runden, 1)
+            self.schild_staerke = max(self.schild_staerke, 0.2 + skill_level * 0.015)
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und wappnet sich für den Gegenschlag.")
+        elif effekt == "gruppenschild":
+            dauer = skill_dauer(gewaehlte_aktion)
+            self.schild_runden = max(self.schild_runden, dauer)
+            self.schild_staerke = max(self.schild_staerke, 0.25 + skill_level * 0.015)
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und schützt die gesamte Gruppe für {dauer} Runden.")
+        elif effekt == "reflexion":
+            dauer = skill_dauer(gewaehlte_aktion)
+            self.reflexion_runden = max(self.reflexion_runden, dauer)
+            self.reflexion_staerke = max(self.reflexion_staerke, 0.3 + skill_level * 0.02)
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein - Treffer werden für {dauer} Runden an die Angreifer zurückgeworfen.")
         elif effekt == "debuff":
-            gegner.angriffskraft = max(1, int(gegner.angriffskraft * (0.92 - skill_level * 0.005)))
-            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und schwächt {gegner.name}.")
+            lebend = self.gegner_lebend()
+            ziele = lebend if aoe else ([gegner_ziel] if gegner_ziel is not None and gegner_ziel.hp > 0 else lebend[:1])
+            for ziel in ziele:
+                ziel.angriffskraft = max(1, int(ziel.angriffskraft * (0.92 - skill_level * 0.005)))
+            namen = " und ".join(z.name for z in ziele)
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und schwächt {namen}.")
 
-        if gegner.hp <= 0:
-            zeilen.append(f"   💀 {gegner.name} ist besiegt!")
+        if not self.gegner_lebend():
+            zeilen.append("   🏆 Alle Gegner sind besiegt!" if len(self.gegnergruppe) > 1 else "")
+            self.beendet = True
+            self.sieg = True
+            self.log.extend(z for z in zeilen if z)
+            return [z for z in zeilen if z]
+
+        schadensreduktion = _begleiter_runde(self, zeilen)
+        if not self.gegner_lebend():
             self.beendet = True
             self.sieg = True
             self.log.extend(zeilen)
             return zeilen
 
-        schadensreduktion = _begleiter_runde(self, zeilen) + eigener_schild_diese_runde
-        if gegner.hp <= 0:
+        for gegner in self.gegner_lebend():
+            if not charakter.lebendig:
+                break
+            ziel = self._waehle_angriffsziel()
+            ziel_ist_spieler = ziel is charakter
+            angriffsname = random.choice(gegner.angriffe) if gegner.angriffe else "kontert"
+            gegen_schaden = int(gegner.angriffskraft * random.uniform(0.14, 0.22))
+            gruppenschild = self.schild_staerke if self.schild_runden > 0 else 0.0
+            persoenlicher_schild = charakter.schadensreduktion() if ziel_ist_spieler else 0.0
+            gesamt_reduktion = min(0.8, schadensreduktion + persoenlicher_schild + gruppenschild)
+            gegen_schaden = int(gegen_schaden * (1 - gesamt_reduktion))
+
+            if ziel_ist_spieler:
+                charakter.hp_aktuell = max(0, charakter.hp_aktuell - gegen_schaden)
+                hp_text = f"{charakter.hp_aktuell}/{charakter.hp_max}"
+            else:
+                ziel.schaden_erleiden(gegen_schaden)
+                hp_text = f"{ziel.hp_aktuell}/{ziel.hp_max}"
+
+            zeile = f"   {gegner.name} {angriffsname} - {gegen_schaden} Schaden an {ziel.name}. [{ziel.name}: {hp_text} HP]"
+            if self.reflexion_runden > 0 and gegen_schaden > 0:
+                reflektiert = int(gegen_schaden * self.reflexion_staerke)
+                if reflektiert > 0:
+                    gegner.hp = max(0, gegner.hp - reflektiert)
+                    zeile += f" - reflektiert {reflektiert} Schaden zurück an {gegner.name} ({gegner.hp}/{gegner.hp_max} HP)"
+                    if gegner.hp <= 0:
+                        zeile += f"! 💀 {gegner.name} ist besiegt!"
+            zeilen.append(zeile)
+
+            if ziel_ist_spieler and charakter.hp_aktuell <= 0:
+                charakter.lebendig = False
+                zeilen.append(f"   💀 {charakter.name} sinkt zu Boden...")
+                self.beendet = True
+                self.sieg = False
+                self.log.extend(zeilen)
+                return zeilen
+            elif not ziel_ist_spieler and ziel.niedergeschlagen:
+                zeilen.append(f"   {ziel.name} wird niedergeschlagen und kann vorerst nicht mehr kämpfen!")
+
+        if self.schild_runden > 0:
+            self.schild_runden -= 1
+        if self.reflexion_runden > 0:
+            self.reflexion_runden -= 1
+
+        if not self.gegner_lebend():
+            zeilen.append("🏆 Alle Gegner sind besiegt!" if len(self.gegnergruppe) > 1 else "")
             self.beendet = True
             self.sieg = True
-            self.log.extend(zeilen)
-            return zeilen
-
-        angriffsname = random.choice(gegner.angriffe) if gegner.angriffe else "kontert"
-        gegen_schaden = int(gegner.angriffskraft * random.uniform(0.14, 0.22))
-        gesamt_reduktion = min(0.8, schadensreduktion + charakter.schadensreduktion())
-        gegen_schaden = int(gegen_schaden * (1 - gesamt_reduktion))
-        charakter.hp_aktuell = max(0, charakter.hp_aktuell - gegen_schaden)
-        zeilen.append(f"   {gegner.name} {angriffsname} - {gegen_schaden} Schaden. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
-
-        if charakter.hp_aktuell <= 0:
-            charakter.lebendig = False
-            zeilen.append(f"   💀 {charakter.name} sinkt zu Boden...")
-            self.beendet = True
-            self.sieg = False
-            self.log.extend(zeilen)
-            return zeilen
+            self.log.extend(z for z in zeilen if z)
+            return [z for z in zeilen if z]
 
         if self.runde >= self.max_runden:
             # Rundenlimit erreicht, ohne dass jemand gefallen ist - wer weniger
             # Anteil seiner HP verloren hat, behält das Feld.
+            lebend = self.gegner_lebend()
             spieler_anteil = charakter.hp_aktuell / charakter.hp_max
-            gegner_anteil = gegner.hp / gegner.hp_max
+            gegner_anteil = (sum(g.hp for g in lebend) / max(1, sum(g.hp_max for g in lebend))) if lebend else 0.0
             sieg = spieler_anteil >= gegner_anteil
             if sieg:
-                zeilen.append(f"   {gegner.name} zieht sich zurück - {charakter.name} behält die Oberhand.")
+                zeilen.append("   Die Gegner ziehen sich zurück - die Gruppe behält die Oberhand.")
             else:
-                zeilen.append(f"   {charakter.name} zieht sich rechtzeitig zurück.")
+                zeilen.append(f"   {charakter.name} und die Gruppe ziehen sich rechtzeitig zurück.")
             self.beendet = True
             self.sieg = sieg
 
         self.log.extend(zeilen)
         return zeilen
 
+    def _waehle_angriffsziel(self):
+        """Wählt, wen ein angreifender Gegner trifft: meist den Anführer, aber
+        ungeschützte Begleiter können ebenfalls getroffen werden. Eine aktive
+        Gruppenschutz-/Aggro-Fähigkeit (schild_runden) lenkt Angriffe
+        zuverlässiger auf den Anführer um - genau das macht einen Tank zum
+        Beschützer der Gruppe, nicht nur zu einem persönlich zäheren Kämpfer."""
+        charakter = self.charakter
+        lebende_begleiter = [b for b in charakter.begleiter if not b.niedergeschlagen]
+        if not lebende_begleiter:
+            return charakter
+        geschuetzt = self.schild_runden > 0
+        spieler_gewicht = 75 if geschuetzt else 45
+        gewichte = [spieler_gewicht] + [(15 if b.rolle == "Nahkämpfer" else 25) for b in lebende_begleiter]
+        ziele = [charakter] + lebende_begleiter
+        return random.choices(ziele, weights=gewichte, k=1)[0]
+
     def ergebnis(self) -> Kampfergebnis:
+        gegner_namen = ", ".join(g.name for g in self.gegnergruppe)
         if self.sieg:
             xp = int(20 * self.gegner_staerke_basis * random.uniform(0.8, 1.3))
             gold = int(self.gegner_staerke_basis * random.uniform(1.5, 4))
@@ -366,20 +514,25 @@ class Kampf:
             xp = int(5 * self.gegner_staerke_basis)
             gold = 0
         return Kampfergebnis(
-            sieg=self.sieg, gegner=self.gegner.name, xp_gewonnen=xp, gold_gewonnen=gold,
+            sieg=self.sieg, gegner=gegner_namen, xp_gewonnen=xp, gold_gewonnen=gold,
             log=self.log, gestorben=not self.charakter.lebendig, runden=self.runde,
         )
 
 
 def kampf_starten(charakter, gegner_name: str | None = None, gegner_staerke: int | None = None,
-                   max_runden: int = 8) -> Kampf:
+                   max_runden: int = 8, gegnergruppe: list[tuple[str, int]] | None = None) -> Kampf:
     """Bereitet einen neuen Kampf vor (Gegner erzeugen, Eröffnungszeile), ohne
     ihn aufzulösen - der Aufrufer (CLI-Menü oder GUI-KampfScene) treibt ihn
-    danach Runde für Runde selbst voran."""
-    if gegner_name is None:
-        gegner_name, gegner_staerke = zufaelliger_gegner(charakter.level)
-    gegner = _erzeuge_gegner(gegner_name, gegner_staerke)
-    return Kampf(charakter=charakter, gegner=gegner, gegner_staerke_basis=gegner_staerke, max_runden=max_runden)
+    danach Runde für Runde selbst voran. `gegnergruppe` erlaubt mehrere
+    gleichzeitige Gegner als Liste von (Name, Stärke); ohne Angabe wird wie
+    bisher ein einzelner Gegner erzeugt (per Namen/Stärke oder zufällig)."""
+    if gegnergruppe is None:
+        if gegner_name is None:
+            gegner_name, gegner_staerke = zufaelliger_gegner(charakter.level)
+        gegnergruppe = [(gegner_name, gegner_staerke)]
+    gegner_objekte = [_erzeuge_gegner(name, staerke) for name, staerke in gegnergruppe]
+    staerke_summe = sum(s for _, s in gegnergruppe)
+    return Kampf(charakter=charakter, gegnergruppe=gegner_objekte, gegner_staerke_basis=staerke_summe, max_runden=max_runden)
 
 
 @dataclass

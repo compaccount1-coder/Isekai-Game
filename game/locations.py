@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
-from game.classes import TANK_PFADE
+from game.classes import TANK_PFADE, skill_ist_aoe
 from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten
 from game.companions import generiere_begleiter, gruppen_rollen, ist_ausgewogene_gruppe
 from game.endgame import (
@@ -664,22 +664,44 @@ def besuche_uebungsplatz(charakter: Charakter) -> Ereignis:
 # Interaktiver Kampf (CLI)
 # ---------------------------------------------------------------------------
 
+def _verbuendeter_text(ziel, charakter) -> str:
+    if ziel is charakter:
+        return f"Dich selbst ({charakter.name}) - HP {charakter.hp_aktuell}/{charakter.hp_max}"
+    return f"{ziel.name} ({ziel.rolle}) - HP {ziel.hp_aktuell}/{ziel.hp_max}"
+
+
 def _kampf_runde_anzeigen(kampf) -> None:
     charakter = kampf.charakter
     aktionen = kampf.verfuegbare_aktionen()
     texte = []
     for aktion in aktionen:
+        aoe_hinweis = " [Alle Gegner]" if aktion != "Angriff" and skill_ist_aoe(aktion) else ""
         if aktion == "Angriff":
             texte.append("Angriff (Grundangriff)")
         else:
             skill = charakter.gelernte_skills[aktion]
-            texte.append(f"{aktion} (Lv.{skill.level})")
-    titel = (
-        f"⚔️ Runde {kampf.runde + 1} - {charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP  |  "
-        f"{kampf.gegner.name}: {kampf.gegner.hp}/{kampf.gegner.hp_max} HP"
-    )
+            texte.append(f"{aktion} (Lv.{skill.level}){aoe_hinweis}")
+
+    gegner_status = "  |  ".join(f"{g.name}: {g.hp}/{g.hp_max} HP" for g in kampf.gegner_lebend())
+    titel = f"⚔️ Runde {kampf.runde + 1} - {charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP  |  {gegner_status}"
     idx = menu_waehlen(titel, texte)
-    for zeile in kampf.runde_ausfuehren(aktionen[idx]):
+    gewaehlte_aktion = aktionen[idx]
+
+    gegner_ziel = None
+    verbuendeter_ziel = None
+    ziel_typ = kampf.ziel_typ(gewaehlte_aktion)
+    if ziel_typ == "gegner":
+        gegner_optionen = kampf.gegner_lebend()
+        g_texte = [f"{g.name} - {g.hp}/{g.hp_max} HP" for g in gegner_optionen]
+        g_idx = menu_waehlen(f"Wen soll {gewaehlte_aktion} treffen?", g_texte)
+        gegner_ziel = gegner_optionen[g_idx]
+    elif ziel_typ == "verbuendeter":
+        verbuendete_optionen = kampf.verbuendete_lebend()
+        v_texte = [_verbuendeter_text(v, charakter) for v in verbuendete_optionen]
+        v_idx = menu_waehlen(f"Auf wen soll {gewaehlte_aktion} gewirkt werden?", v_texte)
+        verbuendeter_ziel = verbuendete_optionen[v_idx]
+
+    for zeile in kampf.runde_ausfuehren(gewaehlte_aktion, gegner_ziel=gegner_ziel, verbuendeter_ziel=verbuendeter_ziel):
         print(zeile)
 
 

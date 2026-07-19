@@ -137,15 +137,27 @@ class Charakter:
             return True
         return False
 
+    def heilen(self, menge: int) -> int:
+        """Heilt eine bestimmte Menge HP (z.B. durch eine gezielte Fähigkeit
+        eines Begleiters). Gibt die tatsächlich geheilte Menge zurück -
+        spiegelt Begleiter.heilen() für eine einheitliche Ziel-Schnittstelle."""
+        geheilt = min(self.hp_max - self.hp_aktuell, max(0, menge))
+        self.hp_aktuell += geheilt
+        return geheilt
+
     def ausruhen(self) -> tuple[int, int]:
         """Regeneriert HP und MP (z.B. nach einer Rast in der Taverne).
         Gibt (geheilte HP, regenerierte MP) zurück. Im eigenen Anwesen fällt
-        die Erholung großzügiger aus als in einer gemieteten Herberge."""
+        die Erholung großzügiger aus als in einer gemieteten Herberge. Die
+        Gruppe rastet mit - auch niedergeschlagene Begleiter kommen dabei
+        wieder auf die Beine."""
         faktor = (0.7, 1.0) if self.anwesen else (0.4, 0.8)
         geheilt = min(self.hp_max - self.hp_aktuell, int(self.hp_max * random.uniform(*faktor)))
         mp_regen = min(self.mp_max - self.mp_aktuell, int(self.mp_max * random.uniform(*faktor)))
         self.hp_aktuell += geheilt
         self.mp_aktuell += mp_regen
+        for b in self.begleiter:
+            b.heilen(int(b.hp_max * random.uniform(*faktor)))
         return geheilt, mp_regen
 
     def xp_hinzufuegen(self, menge: int) -> list[str]:

@@ -9,7 +9,7 @@ from game import locations as locations_module
 from game import savegame
 from gui import hintergruende, orte, spiellauf, theme, widgets
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
-from game.classes import KLASSEN
+from game.classes import KLASSEN, skill_ist_aoe
 from game.combat import Kampfstart
 from game.story import ISEKAI_INTROS, PERSOENLICHKEITEN, erzeuge_ende
 from game.world import generiere_welt
@@ -55,7 +55,10 @@ def _statusleiste(surface, charakter):
     widgets.balken(surface, (rect.x + 540, rect.y + 82, 280, 18), charakter.mp_aktuell / max(1, charakter.mp_max), theme.FARBEN["mp_voll"], theme.FARBEN["mp_leer"])
 
     if charakter.begleiter:
-        beg_text = " | ".join(f"{b.name} (Lv.{b.level} {b.rolle})" for b in charakter.begleiter)
+        beg_text = " | ".join(
+            f"{b.name} (Lv.{b.level} {b.rolle}) HP {b.hp_aktuell}/{b.hp_max}{' [K.O.]' if b.niedergeschlagen else ''}"
+            for b in charakter.begleiter
+        )
     else:
         beg_text = "Reist allein."
     beg_label = f_klein.render(f"Gruppe: {beg_text}", True, theme.FARBEN["text_dim"])
@@ -302,11 +305,19 @@ class KampfScene(Szene):
         self.ort_id = ort_id
         self.scroll = 0
         self._auto_scroll = True
-        self._textrect = pygame.Rect(80, 300, theme.BREITE - 160, theme.HOEHE - 460)
+        self._textrect = pygame.Rect(80, 310 + max(0, len(self.kampf.gegner_lebend()) - 1) * 26, theme.BREITE - 160, 0)
+        self._textrect.height = theme.HOEHE - 170 - self._textrect.y
+        # Zwei-Schritt-Ablauf: erst Fähigkeit wählen, danach - falls nötig -
+        # ein Ziel (Gegner oder Verbündeter). self.gewaehlte_aktion ist nur
+        # zwischen diesen beiden Schritten gesetzt.
+        self.gewaehlte_aktion: str | None = None
         self.aktions_buttons: list[tuple[str, Button]] = []
-        self._baue_buttons()
+        self.ziel_buttons: list[tuple[object, Button]] = []
+        self._baue_aktionsbuttons()
 
-    def _baue_buttons(self):
+    def _baue_aktionsbuttons(self):
+        self.gewaehlte_aktion = None
+        self.ziel_buttons = []
         self.aktions_buttons = []
         aktionen = self.kampf.verfuegbare_aktionen()
         breite, hoehe, abstand = 280, 50, 12
@@ -322,20 +333,57 @@ class KampfScene(Szene):
                 label = "Angriff (Grundangriff)"
             else:
                 lvl = self.charakter.gelernte_skills[aktion].level
-                label = f"{aktion} (Lv.{lvl})"
+                aoe = " [Alle Gegner]" if skill_ist_aoe(aktion) else ""
+                label = f"{aktion} (Lv.{lvl}){aoe}"
             self.aktions_buttons.append((aktion, Button(rect, label, groesse=17)))
+
+    def _baue_zielbuttons(self, aktion: str, ziel_typ: str):
+        self.aktions_buttons = []
+        self.ziel_buttons = []
+        if ziel_typ == "gegner":
+            ziele = self.kampf.gegner_lebend()
+            texte = [f"{g.name} - {g.hp}/{g.hp_max} HP" for g in ziele]
+        else:
+            ziele = self.kampf.verbuendete_lebend()
+            texte = [
+                (f"Dich selbst ({self.charakter.name}) - HP {self.charakter.hp_aktuell}/{self.charakter.hp_max}" if z is self.charakter
+                 else f"{z.name} ({z.rolle}) - HP {z.hp_aktuell}/{z.hp_max}")
+                for z in ziele
+            ]
+        breite, hoehe, abstand = 480, 50, 12
+        start_x = (theme.BREITE - breite) // 2
+        start_y = theme.HOEHE - 150
+        for i, (ziel, text) in enumerate(zip(ziele, texte)):
+            rect = (start_x, start_y + i * (hoehe + abstand), breite, hoehe)
+            self.ziel_buttons.append((ziel, Button(rect, text, groesse=17)))
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEWHEEL:
             self.scroll = max(0, self.scroll - event.y * 30)
             self._auto_scroll = False
-        for aktion, button in self.aktions_buttons:
-            if button.handle_event(event):
-                self._runde(aktion)
-                return
+        if self.gewaehlte_aktion is None:
+            for aktion, button in self.aktions_buttons:
+                if button.handle_event(event):
+                    ziel_typ = self.kampf.ziel_typ(aktion)
+                    if ziel_typ is None:
+                        self._runde(aktion)
+                    else:
+                        self.gewaehlte_aktion = aktion
+                        self._baue_zielbuttons(aktion, ziel_typ)
+                    return
+        else:
+            for ziel, button in self.ziel_buttons:
+                if button.handle_event(event):
+                    aktion = self.gewaehlte_aktion
+                    ziel_typ = self.kampf.ziel_typ(aktion)
+                    if ziel_typ == "gegner":
+                        self._runde(aktion, gegner_ziel=ziel)
+                    else:
+                        self._runde(aktion, verbuendeter_ziel=ziel)
+                    return
 
-    def _runde(self, aktion):
-        self.kampf.runde_ausfuehren(aktion)
+    def _runde(self, aktion, gegner_ziel=None, verbuendeter_ziel=None):
+        self.kampf.runde_ausfuehren(aktion, gegner_ziel=gegner_ziel, verbuendeter_ziel=verbuendeter_ziel)
         self._auto_scroll = True
         if self.kampf.beendet:
             folge = self.kampfstart.bei_abschluss(self.kampf.ergebnis())
@@ -344,19 +392,24 @@ class KampfScene(Szene):
             else:
                 _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.ort_titel, folge, self.ort_id)
         else:
-            self._baue_buttons()
+            self._baue_aktionsbuttons()
 
     def draw(self, surface):
         surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
         _statusleiste(surface, self.charakter)
 
-        titel = theme.font(26, fett=True).render(f"⚔️ {self.kampf.gegner.name}", True, theme.FARBEN["akzent"])
+        gegner_lebend = self.kampf.gegner_lebend()
+        namen = ", ".join(g.name for g in gegner_lebend) if gegner_lebend else ", ".join(g.name for g in self.kampf.gegnergruppe)
+        titel = theme.font(24, fett=True).render(f"⚔️ {namen}", True, theme.FARBEN["akzent"])
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 205))
 
-        gegner_hp_text = theme.font(17).render(f"{self.kampf.gegner.name}: {self.kampf.gegner.hp}/{self.kampf.gegner.hp_max} HP", True, theme.FARBEN["text"])
-        surface.blit(gegner_hp_text, (theme.BREITE // 2 - gegner_hp_text.get_width() // 2, 240))
-        gegner_balken = pygame.Rect(theme.BREITE // 2 - 220, 262, 440, 16)
-        widgets.balken(surface, gegner_balken, self.kampf.gegner.hp / max(1, self.kampf.gegner.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+        y = 236
+        for gegner in (gegner_lebend or self.kampf.gegnergruppe):
+            hp_text = theme.font(15).render(f"{gegner.name}: {gegner.hp}/{gegner.hp_max} HP", True, theme.FARBEN["text"])
+            surface.blit(hp_text, (theme.BREITE // 2 - hp_text.get_width() // 2, y))
+            balken_rect = pygame.Rect(theme.BREITE // 2 - 200, y + 18, 400, 12)
+            widgets.balken(surface, balken_rect, gegner.hp / max(1, gegner.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+            y += 34
 
         widgets.panel(surface, self._textrect)
         innen = self._textrect.inflate(-30, -30)
@@ -366,12 +419,17 @@ class KampfScene(Szene):
             self.scroll = max(0, gesamthoehe - innen.height)
         self.scroll = max(0, min(self.scroll, max(0, gesamthoehe - innen.height)))
 
-        if not self.kampf.beendet:
-            for _, button in self.aktions_buttons:
-                button.draw(surface)
-        else:
+        if self.kampf.beendet:
             warte_label = theme.font(18).render("...", True, theme.FARBEN["text_dim"])
             surface.blit(warte_label, (theme.BREITE // 2 - warte_label.get_width() // 2, theme.HOEHE - 130))
+        elif self.gewaehlte_aktion is not None:
+            hinweis = theme.font(17).render(f"{self.gewaehlte_aktion} - Ziel wählen:", True, theme.FARBEN["akzent"])
+            surface.blit(hinweis, (theme.BREITE // 2 - hinweis.get_width() // 2, theme.HOEHE - 172))
+            for _, button in self.ziel_buttons:
+                button.draw(surface)
+        else:
+            for _, button in self.aktions_buttons:
+                button.draw(surface)
 
 
 class MeldungScene(Szene):

@@ -4,7 +4,7 @@ import random
 from dataclasses import dataclass, field
 
 from game.character import Charakter
-from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten, zufaelliger_gegner
+from game.combat import Kampfstart, erwartete_kampfkraft, kampf_starten, zufaelliger_gegner_gruppe
 from game.items import generiere_item
 from game.races import DAEMONEN_NAMEN, VOELKER, Dungeon, generiere_dungeon, zufaelliges_volk
 from game.world import Welt
@@ -35,12 +35,13 @@ class Ereignis:
 # ---------------------------------------------------------------------------
 
 def ereignis_kampfbegegnung(charakter: Charakter) -> "Ereignis | Kampfstart":
-    gegner_name, staerke = zufaelliger_gegner(charakter.level)
-    einleitung = f"⚔️ {charakter.name} trifft auf {gegner_name}!"
-    kampf = kampf_starten(charakter, gegner_name, staerke)
+    gruppe = zufaelliger_gegner_gruppe(charakter.level)
+    namen = " und ".join(n for n, _ in gruppe)
+    einleitung = f"⚔️ {charakter.name} trifft auf {namen}!"
+    kampf = kampf_starten(charakter, gegnergruppe=gruppe)
 
     def bei_abschluss(ergebnis):
-        charakter.besiegte_gegner += 1 if ergebnis.sieg else 0
+        charakter.besiegte_gegner += len(gruppe) if ergebnis.sieg else 0
         schluss = f"{charakter.name} besiegt {ergebnis.gegner}!" if ergebnis.sieg else f"{charakter.name} muss sich vor {ergebnis.gegner} zurückziehen."
         log = ergebnis.log[1:] if ergebnis.log else []  # erste Zeile war die Begegnungs-Ansage, ersetzt durch `einleitung`
         log.append(schluss)

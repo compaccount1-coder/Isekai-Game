@@ -24,6 +24,35 @@ class Begleiter:
     loyalitaet: int = 50  # 0-100
     level: int = 1
     xp: int = 0
+    hp_max: int = 0
+    hp_aktuell: int = 0
+
+    def __post_init__(self):
+        self._hp_neu_berechnen()
+
+    def _hp_neu_berechnen(self):
+        """Eigene, einfache HP-Skalierung für Begleiter - sie werden nicht so
+        detailliert wie der Hauptcharakter simuliert, brauchen aber echte HP,
+        damit Heilung/Schutz/Angriffe auf sie eine reale Wirkung haben."""
+        alter_max = self.hp_max
+        self.hp_max = 30 + self.level * 10
+        if alter_max > 0 and self.hp_aktuell > 0:
+            self.hp_aktuell = int(self.hp_aktuell * (self.hp_max / alter_max))
+        else:
+            self.hp_aktuell = self.hp_max
+        self.hp_aktuell = min(self.hp_aktuell, self.hp_max)
+
+    @property
+    def niedergeschlagen(self) -> bool:
+        return self.hp_aktuell <= 0
+
+    def schaden_erleiden(self, menge: int):
+        self.hp_aktuell = max(0, self.hp_aktuell - menge)
+
+    def heilen(self, menge: int) -> int:
+        geheilt = min(self.hp_max - self.hp_aktuell, max(0, menge))
+        self.hp_aktuell += geheilt
+        return geheilt
 
     @property
     def klassenname(self) -> str:
@@ -34,7 +63,8 @@ class Begleiter:
         return KLASSEN[self.klasse_id].rolle
 
     def anzeige(self) -> str:
-        return f"{self.name} (Lv.{self.level} {self.klassenname} - {self.rolle}, {self.eigenschaft})"
+        zustand = " [niedergeschlagen]" if self.niedergeschlagen else ""
+        return f"{self.name} (Lv.{self.level} {self.klassenname} - {self.rolle}, {self.eigenschaft}) HP {self.hp_aktuell}/{self.hp_max}{zustand}"
 
     def xp_hinzufuegen(self, menge: int) -> bool:
         """Begleiter leveln automatisch mit - keine Verwaltung durch den
@@ -46,6 +76,7 @@ class Begleiter:
         if self.xp >= schwelle:
             self.xp -= schwelle
             self.level += 1
+            self._hp_neu_berechnen()
             return True
         return False
 
