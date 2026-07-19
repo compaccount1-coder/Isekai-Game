@@ -13,6 +13,17 @@ def verarbeite_ereignis(charakter, ereignis) -> tuple[str, bool]:
         zeilen.extend(ereignis.log)
 
     meldungen = []
+
+    belohnung_teile = []
+    if ereignis.gold:
+        belohnung_teile.append(f"{'+' if ereignis.gold > 0 else ''}{ereignis.gold}g")
+    if ereignis.xp:
+        belohnung_teile.append(f"+{ereignis.xp} XP")
+    if ereignis.ruf:
+        belohnung_teile.append(f"Ruf {'+' if ereignis.ruf > 0 else ''}{ereignis.ruf}")
+    if belohnung_teile:
+        meldungen.append(f"📦 Erhalten: {', '.join(belohnung_teile)}")
+
     if ereignis.xp:
         meldungen.extend(charakter.xp_hinzufuegen(ereignis.xp))
     if ereignis.gold:

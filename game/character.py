@@ -197,10 +197,30 @@ class Charakter:
                 self.stats[stat] += 1
 
     def _eventuell_neuen_skill_lernen(self) -> str | None:
-        skill_pool = list(self.klasse.skills)
-        if self.spezialisierung == "Tank" and self.klasse_id in TANK_PFADE:
-            skill_pool += TANK_PFADE[self.klasse_id]["skills"]
-        verfuegbar = [s for s in skill_pool if s.name not in self.gelernte_skills]
+        """Fähigkeiten schalten sich grob nach ihrer Position in der
+        Klassenliste gestaffelt frei, statt rein zufällig unabhängig vom
+        Level verfügbar zu sein - die ersten beiden sind ohnehin schon
+        Startfähigkeiten, die mächtigeren (Gruppenzauber, Flächenangriffe
+        etc. stehen bewusst weiter hinten in den Klassenlisten) werden erst
+        mit steigendem Level zugänglich."""
+        verfuegbar = []
+        for i, skill in enumerate(self.klasse.skills):
+            if skill.name in self.gelernte_skills:
+                continue
+            if i <= 1:
+                mindestlevel = 1
+            elif i <= 3:
+                mindestlevel = 10
+            elif i <= 5:
+                mindestlevel = 25
+            else:
+                mindestlevel = 40
+            if self.level >= mindestlevel:
+                verfuegbar.append(skill)
+
+        if self.spezialisierung == "Tank" and self.klasse_id in TANK_PFADE and self.level >= 30:
+            verfuegbar += [s for s in TANK_PFADE[self.klasse_id]["skills"] if s.name not in self.gelernte_skills]
+
         if not verfuegbar:
             return None
         # Alle paar Level ein neuer Skill, gewichtet nach freien Plätzen vs. Level

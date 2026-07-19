@@ -274,6 +274,7 @@ KLASSEN: dict[str, Klasse] = {
         skills=[
             Skill("Heiltrank werfen", "Wirft einen Trank, der Verbündete sofort heilt."),
             Skill("Stärkungselixier", "Verleiht der Gruppe vorübergehend erhöhte Kraft."),
+            Skill("Regenerationstrank", "Ein Sud aus heilenden Kräutern, der Wunden zuverlässig schließt."),
             Skill("Giftnebel", "Eine Wolke aus Toxinen schwächt alle Feinde in der Nähe."),
             Skill("Explosive Mischung", "Eine instabile Verbindung mit beachtlicher Wirkung."),
             Skill("Verwandlungstrank", "Verändert vorübergehend Eigenschaften von dir oder Verbündeten."),
@@ -351,6 +352,7 @@ SKILL_EFFEKT: dict[str, str] = {
     "Innere Ruhe": "heilung",
     "Heilendes Licht": "heilung",
     "Heiltrank werfen": "heilung",
+    "Regenerationstrank": "heilung",
     # Notheilung (starke Heilung für kritische Momente, Ziel wählbar)
     "Wiederauferstehung": "notheilung",
     "Wiederbelebung": "notheilung",

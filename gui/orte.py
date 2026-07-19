@@ -60,15 +60,17 @@ ORT_BESCHREIBUNGEN = {
     "tempelbezirk": "Segen, Gespräche, Ruhe",
     "uebungsplatz": "Fähigkeiten trainieren",
     "adelsviertel": "Politik, Audienzen, Intrigen",
+    "inventar": "Ausrüstung wechseln, verkaufen (kostenlos)",
 }
 
 
 def hub_orte(charakter) -> list[str]:
     if charakter.aktionen_uebrig <= 0:
-        return ["taverne"]
+        return ["taverne", "inventar"]
     ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
     if charakter.ruf > 20:
         ids.append("adelsviertel")
+    ids.append("inventar")
     return ids
 
 
@@ -111,15 +113,12 @@ def _markt_traenke_submenu(charakter) -> Submenu:
     return Submenu(f"🧪 Der Alchemiestand bietet an ({charakter.gold}g verfügbar)", opts)
 
 
-def _markt_inventar_submenu(charakter) -> Submenu:
-    if not charakter.inventar:
-        return Submenu("🎒 Inventar ist leer", [("Zurück", lambda: Ereignis(text=f"{charakter.name}s Inventar ist leer - nichts zu verwalten."))])
-
+def _inventar_optionen(charakter) -> list[tuple[str, Aktion]]:
     def item_submenu(item):
         def oeffnen():
             opts = [
-                ("Ausrüsten", lambda: Ereignis(text=charakter.ausruesten(item))),
-                (f"Verkaufen für {item.wert}g", lambda: Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {charakter.verkaufen(item)}g.")),
+                ("Ausrüsten", lambda: Ereignis(text=charakter.ausruesten(item), kostet_aktion=False)),
+                (f"Verkaufen für {item.wert}g", lambda: Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {charakter.verkaufen(item)}g.", kostet_aktion=False)),
             ]
             return Submenu(item.anzeige(), opts)
         return oeffnen
@@ -129,10 +128,26 @@ def _markt_inventar_submenu(charakter) -> Submenu:
         hinweis = " ⭐" if charakter.item_ist_besser(item) else ""
         opts.append((f"{item.anzeige()}{hinweis}", item_submenu(item)))
     opts.append((f"Alles verkaufen ({sum(i.wert for i in charakter.inventar)}g)", lambda: _markt_verkaufen(charakter)))
+    return opts
+
+
+def inventar_submenu(charakter) -> Submenu:
+    """Ausrüstung ansehen/wechseln/verkaufen - kostet keine der täglichen
+    Aktionen, egal von wo aus sie aufgerufen wird."""
+    if not charakter.inventar:
+        return Submenu("🎒 Inventar ist leer", [("Zurück", lambda: Ereignis(text=f"{charakter.name}s Inventar ist leer - nichts zu verwalten.", kostet_aktion=False))])
     return Submenu(
         f"🎒 Inventar von {charakter.name} ({len(charakter.inventar)} Gegenstände, ⭐ = besser als aktuelle Ausrüstung)",
-        opts,
+        _inventar_optionen(charakter),
     )
+
+
+def optionen_inventar(charakter) -> list[tuple[str, Aktion]]:
+    """Für den eigenständigen, immer erreichbaren Inventar-Ort (kein
+    Untermenü, sondern die oberste Ebene selbst)."""
+    if not charakter.inventar:
+        return [("Inventar ist leer", lambda: Ereignis(text=f"{charakter.name}s Inventar ist leer - nichts zu verwalten.", kostet_aktion=False))]
+    return _inventar_optionen(charakter)
 
 
 def _markt_schmied_submenu(charakter) -> Submenu:
@@ -159,7 +174,6 @@ def optionen_marktplatz(charakter, welt) -> list[tuple[str, Aktion]]:
     opts = [
         ("Um Ausrüstung feilschen", lambda: _markt_feilschen(charakter)),
         ("Tränke kaufen", lambda: _markt_traenke_submenu(charakter)),
-        ("Inventar verwalten (ausrüsten/verkaufen)", lambda: _markt_inventar_submenu(charakter)),
         ("Zum Schmied gehen (Ausrüstung verbessern)", lambda: _markt_schmied_submenu(charakter)),
     ]
     if not charakter.anwesen:
@@ -311,5 +325,7 @@ def optionen_fuer_ort(ort_id: str, charakter, welt) -> list[tuple[str, Aktion]]:
         return optionen_tempelbezirk(charakter)
     elif ort_id == "adelsviertel":
         return optionen_adelsviertel(charakter, welt)
+    elif ort_id == "inventar":
+        return optionen_inventar(charakter)
     else:
         return optionen_uebungsplatz(charakter)

@@ -104,6 +104,7 @@ ORTE = {
     "tempelbezirk": Ort("Tempelbezirk", "⛩️"),
     "adelsviertel": Ort("Adelsviertel", "🏰"),
     "uebungsplatz": Ort("Übungsplatz", "🎯"),
+    "inventar": Ort("Inventar", "🎒"),
 }
 
 
@@ -115,24 +116,27 @@ ORT_BESCHREIBUNGEN = {
     "tempelbezirk": "Segen, Gespräche, Ruhe",
     "uebungsplatz": "Fähigkeiten trainieren",
     "adelsviertel": "Politik, Audienzen, Intrigen",
+    "inventar": "Ausrüstung wechseln, verkaufen (kostenlos)",
 }
 
 
 def verfuegbare_orte(charakter: Charakter) -> list[str]:
     """Sind die Aktionen für heute aufgebraucht, bleibt nur noch die Taverne,
-    um schlafen zu gehen und den nächsten Tag zu beginnen."""
+    um schlafen zu gehen und den nächsten Tag zu beginnen - das Inventar
+    bleibt aber immer erreichbar, da es keine Aktion kostet."""
     if charakter.aktionen_uebrig <= 0:
-        return ["taverne"]
+        return ["taverne", "inventar"]
     optionen_ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
     if charakter.ruf > 20:
         optionen_ids.append("adelsviertel")
+    optionen_ids.append("inventar")
     return optionen_ids
 
 
 def waehle_ort(charakter: Charakter) -> str:
     """Der Spieler wählt aktiv, wohin der Charakter als Nächstes geht."""
     optionen_ids = verfuegbare_orte(charakter)
-    if optionen_ids == ["taverne"]:
+    if charakter.aktionen_uebrig <= 0:
         print(f"\n😴 {charakter.name} hat für heute keine Kraft mehr übrig - Zeit, in der Taverne zu schlafen.")
     texte = [f"{ORTE[o].icon} {ORTE[o].name} - {ORT_BESCHREIBUNGEN[o]}" for o in optionen_ids]
     idx = menu_waehlen(f"📍 Wohin geht {charakter.name}? (Aktionen übrig: {charakter.aktionen_uebrig}/{MAX_AKTIONEN_PRO_TAG})", texte)
@@ -276,19 +280,20 @@ def _markt_traenke_kaufen(charakter: Charakter) -> Ereignis:
 
 def _markt_verkaufen(charakter: Charakter) -> Ereignis:
     if not charakter.inventar:
-        return Ereignis(text=f"🎒 {charakter.name}s Inventar ist bereits leer - nichts zu verkaufen.")
+        return Ereignis(text=f"🎒 {charakter.name}s Inventar ist bereits leer - nichts zu verkaufen.", kostet_aktion=False)
     erloes = sum(i.wert for i in charakter.inventar)
     anzahl = len(charakter.inventar)
     charakter.gold += erloes
     charakter.inventar.clear()
-    return Ereignis(text=f"💰 {charakter.name} verkauft {anzahl} Gegenstände aus dem Inventar für insgesamt {erloes}g.")
+    return Ereignis(text=f"💰 {charakter.name} verkauft {anzahl} Gegenstände aus dem Inventar für insgesamt {erloes}g.", kostet_aktion=False)
 
 
-def _markt_inventar_verwalten(charakter: Charakter) -> Ereignis:
+def inventar_verwalten(charakter: Charakter) -> Ereignis:
     """Der Spieler entscheidet selbst, was ausgerüstet oder verkauft wird -
-    keine automatische Verwaltung mehr."""
+    keine automatische Verwaltung mehr. Das bloße Sichten/Verwalten der
+    eigenen Ausrüstung kostet keine der täglichen Aktionen."""
     if not charakter.inventar:
-        return Ereignis(text=f"🎒 {charakter.name}s Inventar ist leer - nichts zu verwalten.")
+        return Ereignis(text=f"🎒 {charakter.name}s Inventar ist leer - nichts zu verwalten.", kostet_aktion=False)
 
     texte = []
     for item in charakter.inventar:
@@ -305,17 +310,17 @@ def _markt_inventar_verwalten(charakter: Charakter) -> Ereignis:
     if idx == anzahl_items:
         return _markt_verkaufen(charakter)
     if idx == anzahl_items + 1:
-        return Ereignis(text=f"{charakter.name} verlässt das Inventar unangetastet.")
+        return Ereignis(text=f"{charakter.name} verlässt das Inventar unangetastet.", kostet_aktion=False)
 
     item = charakter.inventar[idx]
     unteroptionen = ["Ausrüsten", f"Verkaufen für {item.wert}g", "Zurück"]
     unteridx = menu_waehlen(item.anzeige(), unteroptionen)
     if unteridx == 0:
-        return Ereignis(text=charakter.ausruesten(item))
+        return Ereignis(text=charakter.ausruesten(item), kostet_aktion=False)
     elif unteridx == 1:
         erloes = charakter.verkaufen(item)
-        return Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {erloes}g.")
-    return Ereignis(text=f"{charakter.name} überlegt es sich noch einmal.")
+        return Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {erloes}g.", kostet_aktion=False)
+    return Ereignis(text=f"{charakter.name} überlegt es sich noch einmal.", kostet_aktion=False)
 
 
 def _markt_schmied(charakter: Charakter) -> Ereignis:
@@ -373,7 +378,6 @@ def besuche_marktplatz(charakter: Charakter, welt: Welt) -> Ereignis:
     optionen = [
         "Um Ausrüstung feilschen",
         "Tränke kaufen",
-        "Inventar verwalten (ausrüsten/verkaufen)",
         "Zum Schmied gehen (Ausrüstung verbessern)",
     ]
     if not charakter.anwesen:
@@ -387,13 +391,11 @@ def besuche_marktplatz(charakter: Charakter, welt: Welt) -> Ereignis:
     elif idx == 1:
         return _markt_traenke_kaufen(charakter)
     elif idx == 2:
-        return _markt_inventar_verwalten(charakter)
-    elif idx == 3:
         return _markt_schmied(charakter)
     else:
         # Reihenfolge der optionalen Einträge respektieren
-        rest = optionen[4:]
-        gewaehlt = rest[idx - 4]
+        rest = optionen[3:]
+        gewaehlt = rest[idx - 3]
         if "Anwesen" in gewaehlt:
             return _markt_anwesen_kaufen(charakter, welt)
         else:
@@ -738,6 +740,8 @@ def besuche_ort(charakter: Charakter, welt: Welt) -> tuple[str, Ereignis]:
         ereignis = besuche_tempelbezirk(charakter)
     elif ort_id == "adelsviertel":
         ereignis = besuche_adelsviertel(charakter, welt)
+    elif ort_id == "inventar":
+        ereignis = inventar_verwalten(charakter)
     else:
         ereignis = besuche_uebungsplatz(charakter)
 
