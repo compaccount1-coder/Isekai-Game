@@ -18,7 +18,7 @@ from game.endgame import (
     verbleibende_fuersten,
 )
 from game.events import Ereignis, ereignis_dungeon, ereignis_gilde, zufallsereignis
-from game.items import generiere_item, generiere_trank
+from game.items import generiere_item, generiere_trank, schmiede_upgrade
 from game.quests import generiere_quest_brett, quest_abschliessen
 from game.ranks import anforderung_text, kann_aufsteigen, naechster_rang
 from game.world import Welt
@@ -110,7 +110,7 @@ ORTE = {
 def waehle_ort(charakter: Charakter) -> str:
     """Der Spieler wählt aktiv, wohin der Charakter als Nächstes geht."""
     optionen_ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
-    if charakter.pfad == "Herrscher" or charakter.ruf > 20:
+    if charakter.ruf > 20:
         optionen_ids.append("adelsviertel")
 
     beschreibungen = {
@@ -265,6 +265,62 @@ def _markt_verkaufen(charakter: Charakter) -> Ereignis:
     return Ereignis(text=f"💰 {charakter.name} verkauft {anzahl} Gegenstände aus dem Inventar für insgesamt {erloes}g.")
 
 
+def _markt_inventar_verwalten(charakter: Charakter) -> Ereignis:
+    """Der Spieler entscheidet selbst, was ausgerüstet oder verkauft wird -
+    keine automatische Verwaltung mehr."""
+    if not charakter.inventar:
+        return Ereignis(text=f"🎒 {charakter.name}s Inventar ist leer - nichts zu verwalten.")
+
+    texte = []
+    for item in charakter.inventar:
+        hinweis = " ⭐" if charakter.item_ist_besser(item) else ""
+        texte.append(f"{item.anzeige()}{hinweis}")
+    texte.append(f"Alles verkaufen ({sum(i.wert for i in charakter.inventar)}g)")
+    texte.append("Zurück")
+
+    idx = menu_waehlen(
+        f"🎒 Inventar von {charakter.name} ({len(charakter.inventar)} Gegenstände, ⭐ = besser als aktuelle Ausrüstung)",
+        texte,
+    )
+    anzahl_items = len(charakter.inventar)
+    if idx == anzahl_items:
+        return _markt_verkaufen(charakter)
+    if idx == anzahl_items + 1:
+        return Ereignis(text=f"{charakter.name} verlässt das Inventar unangetastet.")
+
+    item = charakter.inventar[idx]
+    unteroptionen = ["Ausrüsten", f"Verkaufen für {item.wert}g", "Zurück"]
+    unteridx = menu_waehlen(item.anzeige(), unteroptionen)
+    if unteridx == 0:
+        return Ereignis(text=charakter.ausruesten(item))
+    elif unteridx == 1:
+        erloes = charakter.verkaufen(item)
+        return Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {erloes}g.")
+    return Ereignis(text=f"{charakter.name} überlegt es sich noch einmal.")
+
+
+def _markt_schmied(charakter: Charakter) -> Ereignis:
+    teile = [(s, getattr(charakter, s)) for s in ("waffe", "ruestung", "accessoire") if getattr(charakter, s)]
+    if not teile:
+        return Ereignis(text=f"🔨 {charakter.name} hat noch keine Ausrüstung, die sich verbessern ließe.")
+
+    texte = []
+    for _, item in teile:
+        _, kosten = schmiede_upgrade(item)
+        texte.append(f"{item.anzeige()} verbessern - {kosten}g")
+    texte.append("Zurück")
+
+    idx = menu_waehlen(f"🔨 Der Schmied begutachtet {charakter.name}s Ausrüstung. (Gold: {charakter.gold})", texte)
+    if idx == len(teile):
+        return Ereignis(text=f"{charakter.name} verlässt die Schmiede ohne Auftrag.")
+
+    slot, item = teile[idx]
+    meldung = charakter.schmiede_verbessern(slot)
+    if meldung:
+        return Ereignis(text=meldung)
+    return Ereignis(text=f"🔨 Das Gold reicht nicht, um {item.name} zu verbessern.")
+
+
 def _markt_anwesen_kaufen(charakter: Charakter, welt: Welt) -> Ereignis:
     if charakter.anwesen:
         return Ereignis(text=f"🏠 {charakter.name} besitzt bereits ein Anwesen in {charakter.anwesen}.")
@@ -295,7 +351,12 @@ def _markt_kutsche_kaufen(charakter: Charakter) -> Ereignis:
 
 
 def besuche_marktplatz(charakter: Charakter, welt: Welt) -> Ereignis:
-    optionen = ["Um Ausrüstung feilschen", "Tränke kaufen", "Loot aus dem Inventar verkaufen"]
+    optionen = [
+        "Um Ausrüstung feilschen",
+        "Tränke kaufen",
+        "Inventar verwalten (ausrüsten/verkaufen)",
+        "Zum Schmied gehen (Ausrüstung verbessern)",
+    ]
     if not charakter.anwesen:
         optionen.append("Ein Anwesen für die Gruppe kaufen")
     if not charakter.hat_kutsche:
@@ -307,11 +368,13 @@ def besuche_marktplatz(charakter: Charakter, welt: Welt) -> Ereignis:
     elif idx == 1:
         return _markt_traenke_kaufen(charakter)
     elif idx == 2:
-        return _markt_verkaufen(charakter)
+        return _markt_inventar_verwalten(charakter)
+    elif idx == 3:
+        return _markt_schmied(charakter)
     else:
         # Reihenfolge der optionalen Einträge respektieren
-        rest = optionen[3:]
-        gewaehlt = rest[idx - 3]
+        rest = optionen[4:]
+        gewaehlt = rest[idx - 4]
         if "Anwesen" in gewaehlt:
             return _markt_anwesen_kaufen(charakter, welt)
         else:
@@ -508,7 +571,7 @@ def besuche_tempelbezirk(charakter: Charakter) -> Ereignis:
 
 
 # ---------------------------------------------------------------------------
-# Adelsviertel (v.a. relevant für den Herrscher-Pfad)
+# Adelsviertel (für Abenteurer mit hohem Ruf)
 # ---------------------------------------------------------------------------
 
 def _adel_audienz(charakter: Charakter, welt: Welt) -> Ereignis:

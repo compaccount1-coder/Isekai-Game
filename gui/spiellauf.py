@@ -1,10 +1,7 @@
 """Verbindet ein aufgelöstes Ereignis mit der Tagesabschluss-Logik - das
 GUI-Gegenstück zu main.py's Schleifenkörper (zeige_ereignis + Tagesende)."""
 
-import random
-
 from game.storyline import pruefe_meilenstein
-from game.story import hat_welt_erobert, herrschafts_ereignis, pruefe_pfadwechsel
 
 
 def verarbeite_ereignis(charakter, ereignis) -> tuple[str, bool]:
@@ -44,29 +41,13 @@ def verarbeite_ereignis(charakter, ereignis) -> tuple[str, bool]:
 
 def tagesende(charakter, welt) -> tuple[str, str | None]:
     """Tagesabschluss wie in main.py's spiel_starten-Schleife: Story-
-    Meilensteine, Pfadwechsel, Herrschaft, Inventarpflege, Rast. Gibt
-    (Zusatztext, Ende-Grund oder None) zurück."""
+    Meilensteine und Rast. Gibt (Zusatztext, Ende-Grund oder None) zurück."""
     charakter.tage_vergangen += 1
     zeilen = []
 
     meilenstein_text = pruefe_meilenstein(charakter)
     if meilenstein_text:
         zeilen.append(meilenstein_text)
-
-    pfadwechsel_text = pruefe_pfadwechsel(charakter, welt)
-    if pfadwechsel_text:
-        zeilen.append(pfadwechsel_text)
-
-    if charakter.pfad == "Herrscher" and random.random() < 0.4:
-        zeilen.append(herrschafts_ereignis(charakter, welt))
-
-    if charakter.tage_vergangen % 4 == 0:
-        verkauft, erloes = charakter.inventar_aufraeumen()
-        if verkauft:
-            zeilen.append(f"💼 {charakter.name} verkauft {verkauft} überzählige Gegenstände für {erloes} Gold.")
-        schmiede_meldung = charakter.schmiede_besuchen()
-        if schmiede_meldung:
-            zeilen.append(schmiede_meldung)
 
     if charakter.hp_aktuell < charakter.hp_max * 0.4:
         geheilt, mp_regen = charakter.ausruhen()
@@ -77,7 +58,5 @@ def tagesende(charakter, welt) -> tuple[str, str | None]:
         ende_grund = "daemonenkoenig"
     elif charakter.level >= 100:
         ende_grund = "levelcap"
-    elif hat_welt_erobert(charakter, welt):
-        ende_grund = "welteroberung"
 
     return "\n\n".join(z for z in zeilen if z), ende_grund

@@ -1,7 +1,7 @@
 """Nicht-interaktiver Test der Kernmechaniken: Level bis 100, Klassenentwicklung,
-Herrscher-Pfad, Welteroberung, Rangaufstieg F->S, Quest-System, und die komplette
-Dämonenkönig-Handlung. Ruft die zugrundeliegenden Funktionen direkt auf (nicht
-über die interaktiven Menüs in locations.py, die echte Eingabe erfordern)."""
+Rangaufstieg F->S, Quest-System, und die komplette Dämonenkönig-Handlung. Ruft
+die zugrundeliegenden Funktionen direkt auf (nicht über die interaktiven Menüs
+in locations.py, die echte Eingabe erfordern)."""
 
 import random
 
@@ -20,7 +20,7 @@ from game.events import zufallsereignis
 from game.items import generiere_trank
 from game.quests import generiere_quest_brett, quest_abschliessen
 from game.ranks import RANG_ANFORDERUNGEN, kann_aufsteigen, naechster_rang
-from game.story import hat_welt_erobert, herrschafts_ereignis, pruefe_pfadwechsel
+from game.story import erzeuge_ende
 from game.world import generiere_welt
 
 random.seed(8)
@@ -31,10 +31,12 @@ welt = generiere_welt(anzahl_koenigreiche=4)
 
 def gruppe_pflegen(charakter):
     """Simuliert, was ein echter Spieler zwischen Kämpfen tun würde: Mitstreiter
-    suchen und Tränke nachkaufen. Das Kernspiel setzt genau darauf, dass Spieler
-    diese Systeme nutzen (siehe begleiter_bonus, bestes_trank_automatisch_nutzen) -
-    ein Test, der rein solo und ohne Nachschub läuft, würde die Kampfbalance
-    künstlich schlechter aussehen lassen, als sie im echten Spiel ist."""
+    suchen, Tränke nachkaufen und bessere Funde ausrüsten. Ausrüstung wird seit
+    der Umstellung auf spielergesteuerte Inventarverwaltung NICHT mehr
+    automatisch angelegt (siehe character.fund_verarbeiten) - ein Test, der
+    Funde einfach im Inventar liegen lässt, würde die Kampfbalance künstlich
+    schlechter aussehen lassen, als sie bei einem Spieler ist, der sein
+    Inventar wie vorgesehen selbst verwaltet."""
     if len(charakter.begleiter) < 3 and random.random() < 0.6:
         vorhandene_rollen = gruppen_rollen(charakter.begleiter)
         neuer = generiere_begleiter(vorhandene_rollen)
@@ -45,11 +47,13 @@ def gruppe_pflegen(charakter):
             break
         charakter.gold -= trank.wert
         charakter.traenke.append(trank)
+    for item in list(charakter.inventar):
+        if charakter.item_ist_besser(item):
+            charakter.ausruesten(item)
 
 
-print("=== Phase 1: Grundmechaniken (Level, Klassen, Herrschaft) ===")
+print("=== Phase 1: Grundmechaniken (Level, Klassenentwicklung) ===")
 tier_wechsel_gesehen = set()
-pfadwechsel_gesehen = False
 
 for tag in range(400):
     if not charakter.lebendig:
@@ -72,10 +76,6 @@ for tag in range(400):
         print(f"Charakter gestorben an Tag {tag} (während des Ereignisses)")
         break
 
-    pw = pruefe_pfadwechsel(charakter, welt)
-    if pw and not pfadwechsel_gesehen:
-        pfadwechsel_gesehen = True
-
     if charakter.hp_aktuell < charakter.hp_max * 0.4:
         charakter.ausruhen()
 
@@ -85,9 +85,10 @@ for tag in range(400):
     if charakter.level >= 40:  # genug für Phase 2, nicht bis 100 laufen
         break
 
-print(f"Level erreicht: {charakter.level}, Tiers gesehen: {tier_wechsel_gesehen}, Pfadwechsel: {pfadwechsel_gesehen}")
+print(f"Level erreicht: {charakter.level}, Tiers gesehen: {tier_wechsel_gesehen}")
 print(f"Lebendig: {charakter.lebendig}, HP: {charakter.hp_aktuell}/{charakter.hp_max}, MP: {charakter.mp_aktuell}/{charakter.mp_max}")
 print(f"Begleiter: {charakter.begleiter_zeile()}, Tränke: {len(charakter.traenke)}")
+print(f"Ausrüstung: {charakter.ausruestungs_zeile()}")
 
 print("\n=== Phase 2: Quest-System & Rangaufstieg F -> S ===")
 charakter.gilde = "Abenteurergilde"
@@ -182,9 +183,12 @@ else:
         for zeile in koenig_ergebnis.log[-6:]:
             print(f"    {zeile}")
 
+ende_grund = "daemonenkoenig" if charakter.daemonenkoenig_besiegt else ("tod" if not charakter.lebendig else None)
 print(f"\n=== Endstatus ===")
 print(f"{charakter.status_zeile()}")
 print(f"Rang: {charakter.rang}")
 print(f"Dämonenkönig besiegt: {charakter.daemonenkoenig_besiegt}")
 print(f"Begleiter: {charakter.begleiter_zeile()}")
 print(f"Lebendig: {charakter.lebendig}")
+if ende_grund:
+    print(erzeuge_ende(charakter, welt, ende_grund))

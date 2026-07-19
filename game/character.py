@@ -56,8 +56,6 @@ class Charakter:
     ruestung: Item | None = None
     accessoire: Item | None = None
     begleiter: list[Begleiter] = field(default_factory=list)
-    pfad: str = "Abenteurer"  # oder "Herrscher"
-    koenigreich: str | None = None
     gilde: str | None = None
     besiegte_gegner: int = 0
     tage_vergangen: int = 0
@@ -264,18 +262,33 @@ class Charakter:
         return item.stat_gesamt() > aktuelles.stat_gesamt()
 
     def fund_verarbeiten(self, item: Item) -> str:
-        """Der Charakter entscheidet eigenständig: ausrüsten, wenn besser, sonst ins Inventar."""
+        """Legt einen Fund ins Inventar - der Spieler entscheidet selbst, am
+        Marktplatz, ob und wann er ihn ausrüstet oder verkauft."""
+        self.inventar.append(item)
+        hinweis = " ⭐ besser als deine aktuelle Ausrüstung!" if self.item_ist_besser(item) else ""
+        return f"🎒 {self.name} findet {item.anzeige()}{hinweis} und verstaut es im Inventar."
+
+    def ausruesten(self, item: Item) -> str:
+        """Rüstet ein Item aus dem Inventar aus - das vorher ausgerüstete Teil
+        (falls vorhanden) wandert zurück ins Inventar."""
+        if item not in self.inventar:
+            return f"{self.name} besitzt {item.name} nicht (mehr)."
         slot = self._slot_fuer_typ(item.typ)
-        if self.item_ist_besser(item):
-            altes = getattr(self, slot)
-            setattr(self, slot, item)
-            if altes:
-                self.inventar.append(altes)
-            self._hp_mp_neu_berechnen()
-            return f"🎒 {self.name} findet {item.anzeige()} und rüstet es sofort aus!"
-        else:
-            self.inventar.append(item)
-            return f"🎒 {self.name} findet {item.anzeige()} und verstaut es im Inventar."
+        altes = getattr(self, slot)
+        self.inventar.remove(item)
+        setattr(self, slot, item)
+        if altes:
+            self.inventar.append(altes)
+        self._hp_mp_neu_berechnen()
+        return f"⚔️ {self.name} rüstet {item.anzeige()} aus."
+
+    def verkaufen(self, item: Item) -> int:
+        """Verkauft ein einzelnes Item aus dem Inventar. Gibt den Erlös zurück."""
+        if item not in self.inventar:
+            return 0
+        self.inventar.remove(item)
+        self.gold += item.wert
+        return item.wert
 
     def inventar_aufraeumen(self, behalten: int = 3) -> tuple[int, int]:
         """Verkauft überschüssige Inventar-Items (behält die wertvollsten `behalten` Stück).
@@ -311,25 +324,25 @@ class Charakter:
         bester = max(passende, key=lambda t: t.wirkung)
         return self.trank_benutzen(bester)
 
-    def schmiede_besuchen(self) -> str | None:
-        """Versucht, das schwächste ausgerüstete Teil beim Schmied zu verbessern, falls genug Gold da ist."""
-        teile = [(s, getattr(self, s)) for s in ("waffe", "ruestung", "accessoire") if getattr(self, s)]
-        if not teile:
+    def schmiede_verbessern(self, slot: str) -> str | None:
+        """Verbessert ein bestimmtes, vom Spieler gewähltes, ausgerüstetes Teil
+        beim Schmied, falls genug Gold vorhanden ist."""
+        aktuelles = getattr(self, slot, None)
+        if not aktuelles:
             return None
-        slot, schwaechstes = min(teile, key=lambda t: t[1].stat_gesamt())
-        verbessert, kosten = schmiede_upgrade(schwaechstes)
+        verbessert, kosten = schmiede_upgrade(aktuelles)
         if self.gold < kosten:
             return None
         self.gold -= kosten
         setattr(self, slot, verbessert)
         self._hp_mp_neu_berechnen()
-        return f"🔨 {self.name} lässt {schwaechstes.name} beim Schmied für {kosten}g verbessern -> {verbessert.name}!"
+        return f"🔨 {self.name} lässt {aktuelles.name} beim Schmied für {kosten}g verbessern -> {verbessert.name}!"
 
     def status_zeile(self) -> str:
         return (
             f"{self.name} | {self.tier.name} (Lv. {self.level}) | "
             f"HP {self.hp_aktuell}/{self.hp_max} | MP {self.mp_max} | "
-            f"Ruf {self.ruf:+d} | Gold {self.gold} | Pfad: {self.pfad}"
+            f"Ruf {self.ruf:+d} | Gold {self.gold}"
         )
 
     def ausruestungs_zeile(self) -> str:

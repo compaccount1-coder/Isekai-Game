@@ -24,7 +24,6 @@ class Ereignis:
     schaden: int = 0
     item: object = None  # Item, falls gefunden
     ruf_bei_volk: tuple[str, int] | None = None
-    pfad_wechsel: str | None = None
     ist_wichtig: bool = False  # markiert Story-relevante Momente stärker in der Ausgabe
     log: list = field(default_factory=list)  # zusätzliche Zeilen, z.B. Kampfrundenprotokoll
 
@@ -278,9 +277,6 @@ def ereignis_politik(charakter: Charakter, welt: Welt) -> Ereignis:
         f"Ein Attentat auf einen hohen Adligen in {koenigreich.name} sorgt für Unruhe im ganzen Land.",
     ]
     text = f"👑 Neuigkeiten verbreiten sich: {random.choice(ereignisse)}"
-    if charakter.pfad == "Herrscher":
-        text += f" {charakter.name} beobachtet die Lage genau - eine Gelegenheit könnte sich bieten."
-        return Ereignis(text=text, xp=int(15 * charakter.level), ist_wichtig=True)
     return Ereignis(text=text, xp=int(5 * charakter.level))
 
 
@@ -309,20 +305,15 @@ def ereignis_legendaer(charakter: Charakter) -> Ereignis:
 # Dispatcher
 # ---------------------------------------------------------------------------
 
-EREIGNIS_GEWICHTE_ABENTEURER = {
+EREIGNIS_GEWICHTE = {
     "kampf": 22, "dungeon": 14, "daemon": 6, "schatz": 12, "mentor": 6,
     "rivale": 8, "haendler": 8, "konflikt": 10, "moral": 8, "gilde": 8, "politik": 4, "legendaer": 2,
-}
-EREIGNIS_GEWICHTE_HERRSCHER = {
-    "kampf": 14, "dungeon": 8, "daemon": 6, "schatz": 8, "mentor": 4,
-    "rivale": 6, "haendler": 6, "konflikt": 14, "moral": 10, "gilde": 4, "politik": 18, "legendaer": 2,
 }
 
 
 def zufallsereignis(charakter: Charakter, welt: Welt) -> Ereignis:
-    gewichte = EREIGNIS_GEWICHTE_HERRSCHER if charakter.pfad == "Herrscher" else EREIGNIS_GEWICHTE_ABENTEURER
-    kategorien = list(gewichte.keys())
-    werte = list(gewichte.values())
+    kategorien = list(EREIGNIS_GEWICHTE.keys())
+    werte = list(EREIGNIS_GEWICHTE.values())
     kategorie = random.choices(kategorien, weights=werte, k=1)[0]
 
     dispatch = {

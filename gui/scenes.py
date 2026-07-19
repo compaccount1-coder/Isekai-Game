@@ -40,7 +40,7 @@ def _statusleiste(surface, charakter):
     surface.blit(name_label, (rect.x + 20, rect.y + 12))
 
     info_label = f_klein.render(
-        f"Rang {charakter.rang}  |  {charakter.gold}g  |  Tag {charakter.tage_vergangen}  |  Ruf {charakter.ruf:+d}  |  Pfad: {charakter.pfad}",
+        f"Rang {charakter.rang}  |  {charakter.gold}g  |  Tag {charakter.tage_vergangen}  |  Ruf {charakter.ruf:+d}",
         True, theme.FARBEN["text_dim"],
     )
     surface.blit(info_label, (rect.x + 20, rect.y + 44))

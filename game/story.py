@@ -1,11 +1,10 @@
-"""Story-Engine: Charaktererstellung, Pfadwechsel, Herrschaft und Enden."""
+"""Story-Engine: Charaktererstellung und Enden."""
 
 import random
-from dataclasses import dataclass, field
 
 from game.character import Charakter
 from game.classes import KLASSEN
-from game.world import Koenigreich, Welt
+from game.world import Welt
 
 PERSOENLICHKEITEN = [
     "mutig", "vorsichtig", "ehrgeizig", "gütig", "grausam", "neugierig",
@@ -64,91 +63,6 @@ def erstelle_charakter() -> Charakter:
 
 
 # ---------------------------------------------------------------------------
-# Pfadwechsel: vom Abenteurer zum Herrscher
-# ---------------------------------------------------------------------------
-
-def pruefe_pfadwechsel(charakter: Charakter, welt: Welt) -> str | None:
-    """Prüft, ob der Charakter (autonom) den Entschluss fasst, ein eigenes Königreich zu gründen."""
-    if charakter.pfad != "Abenteurer":
-        return None
-    if charakter.level < 25:
-        return None
-
-    ehrgeiz_chance = 0.02
-    if "ehrgeizig" in charakter.persoenlichkeit:
-        ehrgeiz_chance += 0.05
-    if "stolz" in charakter.persoenlichkeit:
-        ehrgeiz_chance += 0.03
-    if charakter.ruf > 30:
-        ehrgeiz_chance += 0.03
-    if charakter.gold > 500:
-        ehrgeiz_chance += 0.02
-
-    if random.random() < ehrgeiz_chance:
-        charakter.pfad = "Herrscher"
-        _, stadtname = welt.zufaellige_stadt()
-        charakter.koenigreich = f"Domäne von {charakter.name}"
-        return (
-            f"\n👑 WENDEPUNKT: {charakter.name} hat genug vom Leben als Abenteurer gesehen. "
-            f"Nahe {stadtname} legt er den Grundstein für ein eigenes Reich: {charakter.koenigreich}!\n"
-            f"   Von nun an schreibt {charakter.name} nicht mehr nur seine eigene Geschichte - sondern die eines ganzen Volkes."
-        )
-    return None
-
-
-def herrschafts_ereignis(charakter: Charakter, welt: Welt) -> str:
-    """Zusätzliches Ereignis für Charaktere auf dem Herrscher-Pfad: Expansion, Eroberung."""
-    if not charakter.koenigreich:
-        return ""
-
-    aktion = random.choices(
-        ["expansion", "eroberung", "diplomatie", "aufstand"],
-        weights=[30, 25, 25, 20], k=1,
-    )[0]
-
-    if aktion == "expansion":
-        zuwachs = random.randint(5, 15)
-        charakter.ruf += zuwachs // 2
-        return f"🏰 {charakter.koenigreich} wächst - neue Siedler strömen herbei, angelockt vom Ruf von {charakter.name}."
-
-    elif aktion == "eroberung":
-        ziel = welt.zufaelliges_koenigreich()
-        erfolg_chance = 0.3 + charakter.level / 200 + charakter.ruf / 500
-        if random.random() < erfolg_chance:
-            ziel.macht = max(0, ziel.macht - random.randint(15, 30))
-            charakter.ruf += 15
-            return (
-                f"⚔️ {charakter.name} führt seine Truppen gegen {ziel.name}! "
-                f"Ein entscheidender Sieg schwächt die Macht von {ziel.herrscherhaus} erheblich."
-            )
-        else:
-            charakter.ruf -= 5
-            return (
-                f"⚔️ {charakter.name} führt seine Truppen gegen {ziel.name} - "
-                f"doch der Feldzug scheitert und fordert schwere Verluste."
-            )
-
-    elif aktion == "diplomatie":
-        partner = welt.zufaelliges_koenigreich()
-        partner.beziehung_zum_spieler += random.randint(10, 25)
-        return f"🤝 {charakter.name} schließt ein Bündnis mit {partner.name}, das beiden Seiten Vorteile verschafft."
-
-    else:  # aufstand
-        verlust = random.randint(5, 15)
-        charakter.ruf -= verlust // 2
-        return (
-            f"🔥 Unruhen erschüttern {charakter.koenigreich}! {charakter.name} muss hart durchgreifen, "
-            f"um die Kontrolle zu behalten."
-        )
-
-
-def hat_welt_erobert(charakter: Charakter, welt: Welt) -> bool:
-    if charakter.pfad != "Herrscher":
-        return False
-    return all(k.macht <= 10 for k in welt.koenigreiche)
-
-
-# ---------------------------------------------------------------------------
 # Enden
 # ---------------------------------------------------------------------------
 
@@ -174,13 +88,6 @@ def erzeuge_ende(charakter: Charakter, welt: Welt, grund: str) -> str:
             zeilen.append("Die Welt atmet auf - seine Taten waren gefürchtet bis zum letzten Tag.")
         else:
             zeilen.append("Eine von unzähligen Geschichten, die diese Welt gesehen hat - doch nicht vergessen.")
-
-    elif grund == "welteroberung":
-        zeilen.append(
-            f"👑 {charakter.name} hat es vollbracht: Jedes Königreich dieser Welt beugt sich seinem Willen. "
-            f"Nach {charakter.tage_vergangen} Tagen ist aus einem Ankömmling aus einer anderen Welt "
-            f"der unangefochtene Herrscher über alle Lande geworden."
-        )
 
     elif grund == "levelcap":
         zeilen.append(

@@ -15,7 +15,7 @@ from game.endgame import (
     verbleibende_fuersten,
 )
 from game.events import Ereignis, ereignis_dungeon, ereignis_gilde, zufallsereignis
-from game.items import generiere_trank
+from game.items import generiere_trank, schmiede_upgrade
 from game.locations import (
     ORTE,
     TAVERNEN_NAMEN,
@@ -65,7 +65,7 @@ ORT_BESCHREIBUNGEN = {
 
 def hub_orte(charakter) -> list[str]:
     ids = ["taverne", "marktplatz", "gildenviertel", "wildnis", "tempelbezirk", "uebungsplatz"]
-    if charakter.pfad == "Herrscher" or charakter.ruf > 20:
+    if charakter.ruf > 20:
         ids.append("adelsviertel")
     return ids
 
@@ -107,11 +107,56 @@ def _markt_traenke_submenu(charakter) -> Submenu:
     return Submenu(f"🧪 Der Alchemiestand bietet an ({charakter.gold}g verfügbar)", opts)
 
 
+def _markt_inventar_submenu(charakter) -> Submenu:
+    if not charakter.inventar:
+        return Submenu("🎒 Inventar ist leer", [("Zurück", lambda: Ereignis(text=f"{charakter.name}s Inventar ist leer - nichts zu verwalten."))])
+
+    def item_submenu(item):
+        def oeffnen():
+            opts = [
+                ("Ausrüsten", lambda: Ereignis(text=charakter.ausruesten(item))),
+                (f"Verkaufen für {item.wert}g", lambda: Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {charakter.verkaufen(item)}g.")),
+            ]
+            return Submenu(item.anzeige(), opts)
+        return oeffnen
+
+    opts = []
+    for item in charakter.inventar:
+        hinweis = " ⭐" if charakter.item_ist_besser(item) else ""
+        opts.append((f"{item.anzeige()}{hinweis}", item_submenu(item)))
+    opts.append((f"Alles verkaufen ({sum(i.wert for i in charakter.inventar)}g)", lambda: _markt_verkaufen(charakter)))
+    return Submenu(
+        f"🎒 Inventar von {charakter.name} ({len(charakter.inventar)} Gegenstände, ⭐ = besser als aktuelle Ausrüstung)",
+        opts,
+    )
+
+
+def _markt_schmied_submenu(charakter) -> Submenu:
+    teile = [(s, getattr(charakter, s)) for s in ("waffe", "ruestung", "accessoire") if getattr(charakter, s)]
+    if not teile:
+        return Submenu("🔨 Schmiede", [("Zurück", lambda: Ereignis(text=f"{charakter.name} hat noch keine Ausrüstung, die sich verbessern ließe."))])
+
+    def verbessern(slot, item):
+        def aktion():
+            meldung = charakter.schmiede_verbessern(slot)
+            if meldung:
+                return Ereignis(text=meldung)
+            return Ereignis(text=f"🔨 Das Gold reicht nicht, um {item.name} zu verbessern.")
+        return aktion
+
+    opts = []
+    for slot, item in teile:
+        _, kosten = schmiede_upgrade(item)
+        opts.append((f"{item.anzeige()} verbessern - {kosten}g", verbessern(slot, item)))
+    return Submenu(f"🔨 Der Schmied begutachtet {charakter.name}s Ausrüstung. (Gold: {charakter.gold})", opts)
+
+
 def optionen_marktplatz(charakter, welt) -> list[tuple[str, Aktion]]:
     opts = [
         ("Um Ausrüstung feilschen", lambda: _markt_feilschen(charakter)),
         ("Tränke kaufen", lambda: _markt_traenke_submenu(charakter)),
-        ("Loot aus dem Inventar verkaufen", lambda: _markt_verkaufen(charakter)),
+        ("Inventar verwalten (ausrüsten/verkaufen)", lambda: _markt_inventar_submenu(charakter)),
+        ("Zum Schmied gehen (Ausrüstung verbessern)", lambda: _markt_schmied_submenu(charakter)),
     ]
     if not charakter.anwesen:
         opts.append(("Ein Anwesen für die Gruppe kaufen", lambda: _markt_anwesen_kaufen(charakter, welt)))

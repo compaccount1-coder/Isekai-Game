@@ -12,13 +12,7 @@ import sys
 
 from game.character import Charakter
 from game.locations import EingabeErschoepft, besuche_ort
-from game.story import (
-    erstelle_charakter,
-    erzeuge_ende,
-    hat_welt_erobert,
-    herrschafts_ereignis,
-    pruefe_pfadwechsel,
-)
+from game.story import erstelle_charakter, erzeuge_ende
 from game.storyline import pruefe_meilenstein
 from game.world import generiere_welt
 
@@ -84,15 +78,6 @@ def rasten_falls_noetig(charakter: Charakter):
         print(f"\n🛌 {charakter.name} ist schwer verwundet und rastet, um sich zu erholen. (+{geheilt} HP, +{mp_regen} MP)")
 
 
-def inventar_und_schmiede(charakter: Charakter):
-    verkauft, erloes = charakter.inventar_aufraeumen()
-    if verkauft:
-        print(f"\n💼 {charakter.name} verkauft {verkauft} überzählige Gegenstände für {erloes} Gold.")
-    schmiede_meldung = charakter.schmiede_besuchen()
-    if schmiede_meldung:
-        print(f"\n{schmiede_meldung}")
-
-
 def spiel_starten():
     print(TITEL_ART)
     print("Ein Leben endet. Ein neues beginnt - in einer Welt voller unendlicher Möglichkeiten.\n")
@@ -106,10 +91,8 @@ def spiel_starten():
     pause()
 
     ende_grund = None
-    tag_zaehler = 0
 
     while True:
-        tag_zaehler += 1
         charakter.tage_vergangen += 1
 
         print(f"\n{'=' * 70}\n📅 Tag {charakter.tage_vergangen}  |  {charakter.status_zeile()}\n{'=' * 70}")
@@ -129,17 +112,6 @@ def spiel_starten():
             print(meilenstein_text)
             pause()
 
-        pfadwechsel_text = pruefe_pfadwechsel(charakter, welt)
-        if pfadwechsel_text:
-            print(pfadwechsel_text)
-            pause()
-
-        if charakter.pfad == "Herrscher" and random.random() < 0.4:
-            print(f"\n{herrschafts_ereignis(charakter, welt)}")
-
-        if tag_zaehler % 4 == 0:
-            inventar_und_schmiede(charakter)
-
         rasten_falls_noetig(charakter)
 
         if charakter.daemonenkoenig_besiegt:
@@ -147,9 +119,6 @@ def spiel_starten():
             break
         if charakter.level >= 100:
             ende_grund = "levelcap"
-            break
-        if hat_welt_erobert(charakter, welt):
-            ende_grund = "welteroberung"
             break
 
         pause()
