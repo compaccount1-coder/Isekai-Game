@@ -7,7 +7,7 @@ import pygame
 
 from game import locations as locations_module
 from game import savegame
-from gui import hintergruende, orte, spiellauf, theme, widgets
+from gui import einstellungen, hintergruende, musik, orte, spiellauf, theme, widgets
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import KLASSEN, skill_ist_aoe, skill_ist_signatur
 from game.combat import Kampfstart
@@ -74,6 +74,7 @@ class TitleScene(Szene):
 
     def __init__(self, app):
         super().__init__(app)
+        musik.spiele("erkundung")
         mitte_x = theme.BREITE // 2
         self.neues_spiel_button = Button((mitte_x - 160, 430, 320, 60), "Neues Spiel", groesse=26)
         fortsetzen_moeglich = savegame.spielstand_vorhanden()
@@ -111,6 +112,7 @@ class TitleScene(Szene):
 class CharErstellungScene(Szene):
     def __init__(self, app):
         super().__init__(app)
+        musik.spiele("erkundung")
         self.intro = random.choice(ISEKAI_INTROS)
         self.name_eingabe = widgets.TextEingabe((theme.BREITE // 2 - 220, 178, 440, 42), groesse=22, placeholder="Name eingeben...")
         self.klasse_id: str | None = None
@@ -187,6 +189,7 @@ class CharErstellungScene(Szene):
 class HubScene(Szene):
     def __init__(self, app, charakter, welt):
         super().__init__(app)
+        musik.spiele("erkundung")
         self.charakter = charakter
         self.welt = welt
         self.ort_ids = orte.hub_orte(charakter)
@@ -199,7 +202,7 @@ class HubScene(Szene):
 
     def _baue_buttons(self):
         self.buttons = []
-        start_y = 240
+        start_y = 258
         breite = 760
         abstand = 14
         anzahl = len(self.ort_ids)
@@ -248,6 +251,7 @@ class OrtScene(Szene):
 
     def __init__(self, app, charakter, welt, titel, optionen, ort_id, zurueck=None):
         super().__init__(app)
+        musik.spiele("erkundung")
         self.charakter = charakter
         self.welt = welt
         self.titel = titel
@@ -258,9 +262,16 @@ class OrtScene(Szene):
         self.zurueck_button: Button | None = None
         self._baue_buttons()
 
+    def _titel_zeilen(self):
+        return widgets.zeilenumbruch(self.titel, theme.font_titel(25), theme.BREITE - 160)
+
     def _baue_buttons(self):
         self.buttons = []
-        y = 230
+        # Startet erst unterhalb des (ggf. mehrzeiligen) Titels - ein fester
+        # Wert hier führte bei der neuen, etwas höheren Schriftart dazu, dass
+        # der erste Button den Titeltext leicht überdeckte.
+        titel_zeilenhoehe = theme.font_titel(25).get_linesize()
+        y = 200 + len(self._titel_zeilen()) * titel_zeilenhoehe + 22
         breite = 820
         hoehe_min = 54
         abstand = 12
@@ -307,12 +318,11 @@ class OrtScene(Szene):
         surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
         _statusleiste(surface, self.charakter)
         titel_font = theme.font_titel(25)
-        titel_zeilen = widgets.zeilenumbruch(self.titel, titel_font, theme.BREITE - 160)
         y = 200
-        for zeile in titel_zeilen:
+        for zeile in self._titel_zeilen():
             label = titel_font.render(zeile, True, theme.FARBEN["akzent_hell"])
             surface.blit(label, (theme.BREITE // 2 - label.get_width() // 2, y))
-            y += 30
+            y += titel_font.get_linesize()
         for button in self.buttons:
             button.draw(surface)
         if self.zurueck_button:
@@ -327,6 +337,7 @@ class KampfScene(Szene):
 
     def __init__(self, app, charakter, welt, ort_titel, kampfstart, ort_id=None):
         super().__init__(app)
+        musik.spiele("kampf")
         self.charakter = charakter
         self.welt = welt
         self.ort_titel = ort_titel
@@ -507,7 +518,15 @@ class MeldungScene(Szene):
         self.on_weiter = on_weiter
         self.scroll = 0
         self._textrect = pygame.Rect(80, 150, theme.BREITE - 160, theme.HOEHE - 260)
-        self.weiter_button = Button((theme.BREITE // 2 - 120, theme.HOEHE - 86, 240, 56), weiter_text, groesse=23)
+        # Größe passt sich dem Text an ("Weiter" vs. "Weiter zum nächsten
+        # Gegner") - ein fester 240px-Button ließ längere Beschriftungen auf
+        # drei gequetschte Zeilen umbrechen und über den Rand hinauslaufen.
+        knopf_font = theme.font_titel(23, fett=False)
+        breite = max(240, min(460, knopf_font.size(weiter_text)[0] + 60))
+        zeilen = widgets.zeilenumbruch(weiter_text, knopf_font, breite - 24)
+        hoehe = max(56, len(zeilen) * knopf_font.get_linesize() + 20)
+        rect = (theme.BREITE // 2 - breite // 2, theme.HOEHE - 30 - hoehe, breite, hoehe)
+        self.weiter_button = Button(rect, weiter_text, groesse=23)
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEWHEEL:
@@ -596,11 +615,17 @@ class PauseScene(Szene):
             self.titel_button.draw(surface)
 
 
+_ANZEIGEMODI = [("fenster", "Fenster"), ("vollbild", "Vollbildschirm"), ("randlos", "Vollbild (randlos)")]
+_LAUTSTAERKEN = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+_TEXTGROESSEN = [("normal", "Normal"), ("gross", "Groß")]
+
+
 class EinstellungenScene(Szene):
-    """Einfache Einstellungen, erreichbar über das Pause-Menü: aktuell nur
-    der Vollbild-Umschalter, als eigener Bildschirm angelegt, damit sich
-    das später zwanglos um Lautstärke/Textgeschwindigkeit o.ä. erweitern
-    lässt, ohne das Pause-Menü selbst zu überladen."""
+    """Einstellungen, erreichbar über das Pause-Menü: Anzeigemodus (Fenster/
+    Vollbild/randloses Vollbild-Fenster), Fenstergröße, Musik-Lautstärke und
+    Textgröße. Jede Zeile ist ein einzelner Knopf, der ihren Wert bei jedem
+    Klick zum nächsten weiterschaltet - alle Werte werden sofort über
+    gui.einstellungen persistiert, gelten also auch beim nächsten Start."""
 
     pausierbar = False
 
@@ -608,15 +633,35 @@ class EinstellungenScene(Szene):
         super().__init__(app)
         self.spiel_szene = spiel_szene
         mitte_x = theme.BREITE // 2
-        self.vollbild_button = Button((mitte_x - 200, 340, 400, 58), "", groesse=21)
-        self.zurueck_button = Button((mitte_x - 160, 420, 320, 54), "◀ Zurück", groesse=21)
+        breite, abstand, hoehe = 460, 68, 58
+        start_y = 258
+        self.anzeigemodus_button = Button((mitte_x - breite // 2, start_y, breite, hoehe), "", groesse=19)
+        self.fenstergroesse_button = Button((mitte_x - breite // 2, start_y + abstand, breite, hoehe), "", groesse=19)
+        self.musik_button = Button((mitte_x - breite // 2, start_y + abstand * 2, breite, hoehe), "", groesse=19)
+        self.textgroesse_button = Button((mitte_x - breite // 2, start_y + abstand * 3, breite, hoehe), "", groesse=19)
+        self.zurueck_button = Button((mitte_x - 160, start_y + abstand * 4 + 12, 320, 54), "◀ Zurück", groesse=21)
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             self.app.wechsle_szene(PauseScene(self.app, self.spiel_szene))
             return
-        if self.vollbild_button.handle_event(event):
-            self.app.vollbild_umschalten()
+        einst = self.app.einstellungen
+        if self.anzeigemodus_button.handle_event(event):
+            werte = [w for w, _ in _ANZEIGEMODI]
+            naechster = werte[(werte.index(einst["anzeigemodus"]) + 1) % len(werte)]
+            self.app.anzeigemodus_setzen(naechster)
+        elif self.fenstergroesse_button.handle_event(event) and einst["anzeigemodus"] == "fenster":
+            aktuelle = tuple(einst["fenstergroesse"])
+            groessen = einstellungen.FENSTERGROESSEN
+            idx = groessen.index(aktuelle) if aktuelle in groessen else 0
+            self.app.fenstergroesse_setzen(groessen[(idx + 1) % len(groessen)])
+        elif self.musik_button.handle_event(event):
+            idx = min(range(len(_LAUTSTAERKEN)), key=lambda i: abs(_LAUTSTAERKEN[i] - einst["musik_lautstaerke"]))
+            self.app.musik_lautstaerke_setzen(_LAUTSTAERKEN[(idx + 1) % len(_LAUTSTAERKEN)])
+        elif self.textgroesse_button.handle_event(event):
+            werte = [w for w, _ in _TEXTGROESSEN]
+            naechster = werte[(werte.index(einst["textgroesse"]) + 1) % len(werte)]
+            self.app.textgroesse_setzen(naechster)
         elif self.zurueck_button.handle_event(event):
             self.app.wechsle_szene(PauseScene(self.app, self.spiel_szene))
 
@@ -626,18 +671,35 @@ class EinstellungenScene(Szene):
         schleier.fill((8, 6, 12, 190))
         surface.blit(schleier, (0, 0))
 
-        panel_rect = pygame.Rect(theme.BREITE // 2 - 280, 220, 560, 300)
+        panel_rect = pygame.Rect(theme.BREITE // 2 - 280, 165, 560, 480)
         widgets.panel(surface, panel_rect, ornament=True)
         titel = theme.font_dekorativ(30).render("Einstellungen", True, theme.FARBEN["akzent_hell"])
-        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 255))
-        widgets.trennlinie(surface, theme.BREITE // 2, 302, breite=280)
+        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 195))
+        widgets.trennlinie(surface, theme.BREITE // 2, 242, breite=280)
 
-        zustand = "An ✅" if self.app.vollbild else "Aus"
-        self.vollbild_button.text = f"Vollbildschirm: {zustand}"
-        self.vollbild_button.subtitle = "F11 wirkt als Kurzbefehl jederzeit ebenso"
-        self.vollbild_button.subtitle_font = theme.font(13)
-        self.vollbild_button.draw(surface)
+        einst = self.app.einstellungen
+        anzeigemodus_name = dict(_ANZEIGEMODI)[einst["anzeigemodus"]]
+        self.anzeigemodus_button.text = f"Anzeigemodus: {anzeigemodus_name}"
+        self.anzeigemodus_button.draw(surface)
+
+        breite, hoehe = einst["fenstergroesse"]
+        self.fenstergroesse_button.text = f"Fenstergröße: {breite}×{hoehe}"
+        self.fenstergroesse_button.enabled = einst["anzeigemodus"] == "fenster"
+        self.fenstergroesse_button.subtitle = None if self.fenstergroesse_button.enabled else "nur im Fenstermodus wählbar"
+        self.fenstergroesse_button.subtitle_font = theme.font(13)
+        self.fenstergroesse_button.draw(surface)
+
+        self.musik_button.text = f"Musik-Lautstärke: {round(einst['musik_lautstaerke'] * 100)}%"
+        self.musik_button.draw(surface)
+
+        textgroesse_name = dict(_TEXTGROESSEN)[einst["textgroesse"]]
+        self.textgroesse_button.text = f"Textgröße: {textgroesse_name}"
+        self.textgroesse_button.draw(surface)
+
         self.zurueck_button.draw(surface)
+
+        hinweis = theme.font(13).render("F11 wirkt als Kurzbefehl für Fenster/Vollbildschirm jederzeit ebenso.", True, theme.FARBEN["text_dim"])
+        surface.blit(hinweis, (theme.BREITE // 2 - hinweis.get_width() // 2, self.zurueck_button.rect.bottom + 16))
 
 
 def _starte_ereignis_anzeige(app, charakter, welt, ort_titel, ereignis, ort_id=None):

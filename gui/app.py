@@ -2,33 +2,76 @@
 
 import pygame
 
-from gui import theme
+from gui import einstellungen, musik, theme
 
 
 class App:
     """Zeichnet jede Szene auf eine feste logische Fläche (theme.BREITE x
     theme.HOEHE) und skaliert diese danach auf das tatsächliche Fenster bzw.
-    den Bildschirm - so funktionieren Vollbild und Fenster-Größenänderung,
-    ohne dass jede Szene ihr Layout selbst anpassen müsste. Mausereignisse
-    werden dafür von physischen Fenster- zurück in logische Koordinaten
-    umgerechnet, bevor sie an die aktuelle Szene weitergereicht werden."""
+    den Bildschirm - so funktionieren Vollbild, randloses Vollbild-Fenster
+    und Fenster-Größenänderung, ohne dass jede Szene ihr Layout selbst
+    anpassen müsste. Mausereignisse werden dafür von physischen Fenster-
+    zurück in logische Koordinaten umgerechnet, bevor sie an die aktuelle
+    Szene weitergereicht werden. Anzeige-/Audio-Einstellungen werden beim
+    Start geladen (siehe gui.einstellungen) und bei jeder Änderung sofort
+    wieder gespeichert."""
 
     def __init__(self):
         pygame.init()
         pygame.display.set_caption("Isekai Chronicles")
         self.logische_flaeche = pygame.Surface((theme.BREITE, theme.HOEHE))
-        self.fenster = pygame.display.set_mode((theme.BREITE, theme.HOEHE), pygame.RESIZABLE)
-        self.vollbild = False
+        self.einstellungen = einstellungen.laden()
+        self.fenster = None
+        self._anzeigemodus_anwenden()
+        theme.TEXT_SKALA = 1.15 if self.einstellungen["textgroesse"] == "gross" else 1.0
+        musik.init()
+        musik.lautstaerke_setzen(self.einstellungen["musik_lautstaerke"])
         self.clock = pygame.time.Clock()
         self.laeuft = True
         self.szene = None
 
-    def vollbild_umschalten(self):
-        self.vollbild = not self.vollbild
-        if self.vollbild:
+    # -- Anzeige-Einstellungen -------------------------------------------
+
+    def _anzeigemodus_anwenden(self):
+        modus = self.einstellungen["anzeigemodus"]
+        if modus == "vollbild":
             self.fenster = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        elif modus == "randlos":
+            info = pygame.display.Info()
+            self.fenster = pygame.display.set_mode((info.current_w, info.current_h), pygame.NOFRAME)
         else:
-            self.fenster = pygame.display.set_mode((theme.BREITE, theme.HOEHE), pygame.RESIZABLE)
+            breite, hoehe = self.einstellungen["fenstergroesse"]
+            self.fenster = pygame.display.set_mode((breite, hoehe), pygame.RESIZABLE)
+
+    def anzeigemodus_setzen(self, modus: str):
+        self.einstellungen["anzeigemodus"] = modus
+        self._anzeigemodus_anwenden()
+        einstellungen.speichern(self.einstellungen)
+
+    def fenstergroesse_setzen(self, groesse: tuple[int, int]):
+        self.einstellungen["fenstergroesse"] = list(groesse)
+        if self.einstellungen["anzeigemodus"] == "fenster":
+            self._anzeigemodus_anwenden()
+        einstellungen.speichern(self.einstellungen)
+
+    def musik_lautstaerke_setzen(self, wert: float):
+        self.einstellungen["musik_lautstaerke"] = wert
+        musik.lautstaerke_setzen(wert)
+        einstellungen.speichern(self.einstellungen)
+
+    def textgroesse_setzen(self, wert: str):
+        self.einstellungen["textgroesse"] = wert
+        theme.TEXT_SKALA = 1.15 if wert == "gross" else 1.0
+        einstellungen.speichern(self.einstellungen)
+
+    def vollbild_umschalten(self):
+        """Kurzbefehl (F11): schaltet nur zwischen Fenster und echtem
+        Vollbild um - die volle Auswahl (inkl. randlosem Vollbild-Fenster
+        und Fenstergrößen) steht im Einstellungen-Bildschirm bereit."""
+        neuer_modus = "fenster" if self.einstellungen["anzeigemodus"] == "vollbild" else "vollbild"
+        self.anzeigemodus_setzen(neuer_modus)
+
+    # -- Skalierung/Koordinatenumrechnung ---------------------------------
 
     def _skalierung(self):
         fenster_breite, fenster_hoehe = self.fenster.get_size()
@@ -41,6 +84,8 @@ class App:
     def _physisch_zu_logisch(self, pos):
         skala, offset_x, offset_y, _, _ = self._skalierung()
         return ((pos[0] - offset_x) / skala, (pos[1] - offset_y) / skala)
+
+    # -- Szenen-/Spielschleife --------------------------------------------
 
     def wechsle_szene(self, neue_szene):
         self.szene = neue_szene

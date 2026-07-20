@@ -12,3 +12,9 @@ UI-Grafiken (Creative Commons Zero 1.0 - CC0, keine Nennung erforderlich):
     Daraus abgeleitet: assets/ui/corner_ornament.png, assets/ui/divider.png
     (zugeschnitten, eingefärbt, hochskaliert)
   Bezug: https://kenney.nl/assets/fantasy-ui-borders
+
+Musik (Creative Commons Zero 1.0 - CC0, keine Nennung erforderlich):
+  - "Battle Theme" - assets/musik/kampf.mp3
+    Bezug: https://opengameart.org/content/battle-theme-0
+  - "Town Theme RPG" - assets/musik/erkundung.mp3
+    Bezug: https://opengameart.org/content/town-theme-rpg

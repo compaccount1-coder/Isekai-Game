@@ -57,6 +57,14 @@ _EMOJI_FALLBACK_NAMEN = "segoeuisymbol,seguisym,applecoloremoji,notosanssymbols,
 
 _FONT_CACHE: dict[tuple[str, int, bool], "_MischFont"] = {}
 
+# Globaler Skalierungsfaktor für alle über font()/font_titel()/font_dekorativ()
+# angeforderten Schriftgrößen - von der "Textgröße"-Einstellung gesetzt
+# (siehe gui.app.App.textgroesse_setzen). Wirkt rückwirkend auf neu
+# angeforderte Schriftgrößen; bereits gecachte bleiben unverändert im
+# Speicher, das fällt bei der überschaubaren Zahl verschiedener
+# Schriftgrößen im Projekt nicht ins Gewicht.
+TEXT_SKALA = 1.0
+
 
 class _MischFont:
     """Kombiniert eine der handverlesenen Schriftarten (Cinzel/EB Garamond -
@@ -152,6 +160,7 @@ def font(groesse: int, fett: bool = False) -> "_MischFont":
     Log-Text usw. Bleibt bewusst unter demselben Namen wie zuvor, damit
     jeder bestehende Aufruf im Projekt ohne Änderung von der neuen,
     handgesetzten Schriftart statt der System-Schriftart profitiert."""
+    groesse = max(8, round(groesse * TEXT_SKALA))
     schluessel = ("koerper", groesse, fett)
     if schluessel not in _FONT_CACHE:
         f = pygame.font.Font(_SCHRIFT_KOERPER, groesse)
@@ -164,6 +173,7 @@ def font_titel(groesse: int, fett: bool = True) -> "_MischFont":
     """Auszeichnungsschrift (Cinzel) für Überschriften, Orts- und
     Situationstitel - dort, wo bewusst ein "gemeißelter", herrschaftlicher
     Eindruck statt Fließtext gewünscht ist."""
+    groesse = max(8, round(groesse * TEXT_SKALA))
     schluessel = ("titel", groesse, fett)
     if schluessel not in _FONT_CACHE:
         f = pygame.font.Font(_SCHRIFT_TITEL, groesse)
@@ -175,6 +185,7 @@ def font_titel(groesse: int, fett: bool = True) -> "_MischFont":
 def font_dekorativ(groesse: int) -> "_MischFont":
     """Stark verzierte Prunkschrift (Cinzel Decorative), ausschließlich für
     den großen Spieltitel auf dem Startbildschirm gedacht."""
+    groesse = max(8, round(groesse * TEXT_SKALA))
     schluessel = ("dekorativ", groesse, False)
     if schluessel not in _FONT_CACHE:
         _FONT_CACHE[schluessel] = _MischFont(pygame.font.Font(_SCHRIFT_TITEL_DEKORATIV, groesse))
