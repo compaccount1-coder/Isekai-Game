@@ -7,7 +7,7 @@ import pygame
 
 from game import locations as locations_module
 from game import savegame
-from gui import einstellungen, hintergruende, musik, orte, spiellauf, theme, widgets
+from gui import einstellungen, hintergruende, musik, orte, portraits, spiellauf, theme, widgets
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import KLASSEN, skill_ist_aoe, skill_ist_signatur
 from game.combat import Kampfstart
@@ -41,22 +41,26 @@ def _statusleiste(surface, charakter):
     f_gross = theme.font_titel(22)
     f_klein = theme.font(16)
 
+    portrait = portraits.gerahmt(charakter.klasse_id, radius=48)
+    surface.blit(portrait, portrait.get_rect(midleft=(rect.x + 20, rect.centery)))
+    text_x = rect.x + 30 + portrait.get_width()
+
     name_label = f_gross.render(f"{charakter.name} - {charakter.tier.name} (Lv. {charakter.level})", True, theme.FARBEN["akzent_hell"])
-    surface.blit(name_label, (rect.x + 20, rect.y + 12))
+    surface.blit(name_label, (text_x, rect.y + 12))
 
     info_label = f_klein.render(
         f"Rang {charakter.rang}  |  {charakter.gold}g  |  Tag {charakter.tage_vergangen}  |  Ruf {charakter.ruf:+d}",
         True, theme.FARBEN["text_dim"],
     )
-    surface.blit(info_label, (rect.x + 20, rect.y + 44))
+    surface.blit(info_label, (text_x, rect.y + 44))
 
     hp_label = f_klein.render(f"HP {charakter.hp_aktuell}/{charakter.hp_max}", True, theme.FARBEN["text"])
-    surface.blit(hp_label, (rect.x + 20, rect.y + 80))
-    widgets.animierter_balken(surface, (rect.x + 130, rect.y + 82, 280, 18), (id(charakter), "hp"), charakter.hp_aktuell / max(1, charakter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+    surface.blit(hp_label, (text_x, rect.y + 80))
+    widgets.animierter_balken(surface, (text_x + 110, rect.y + 82, 260, 18), (id(charakter), "hp"), charakter.hp_aktuell / max(1, charakter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
 
     mp_label = f_klein.render(f"MP {charakter.mp_aktuell}/{charakter.mp_max}", True, theme.FARBEN["text"])
-    surface.blit(mp_label, (rect.x + 440, rect.y + 80))
-    widgets.animierter_balken(surface, (rect.x + 540, rect.y + 82, 280, 18), (id(charakter), "mp"), charakter.mp_aktuell / max(1, charakter.mp_max), theme.FARBEN["mp_voll"], theme.FARBEN["mp_leer"])
+    surface.blit(mp_label, (text_x + 400, rect.y + 80))
+    widgets.animierter_balken(surface, (text_x + 500, rect.y + 82, 260, 18), (id(charakter), "mp"), charakter.mp_aktuell / max(1, charakter.mp_max), theme.FARBEN["mp_voll"], theme.FARBEN["mp_leer"])
 
     if charakter.begleiter:
         beg_text = " | ".join(
@@ -66,7 +70,7 @@ def _statusleiste(surface, charakter):
     else:
         beg_text = "Reist allein."
     beg_label = f_klein.render(f"Gruppe: {beg_text}", True, theme.FARBEN["text_dim"])
-    surface.blit(beg_label, (rect.x + 20, rect.y + 112))
+    surface.blit(beg_label, (text_x, rect.y + 112))
 
 
 class TitleScene(Szene):
@@ -186,7 +190,7 @@ class CharErstellungScene(Szene):
             spalte = i % spalten
             zeile = i // spalten
             rect = (start_x + spalte * (breite + abstand_x), start_y + zeile * (hoehe + abstand_y), breite, hoehe)
-            btn = Button(rect, klasse.tiers[0].name, groesse=19, subtitle=klasse.rolle, subtitle_groesse=14)
+            btn = Button(rect, klasse.tiers[0].name, groesse=19, subtitle=klasse.rolle, subtitle_groesse=14, icon=portraits.gerahmt(kid, radius=24))
             self.klassen_buttons.append((kid, btn))
 
     def handle_event(self, event):
@@ -230,9 +234,11 @@ class CharErstellungScene(Szene):
                 pygame.draw.rect(surface, theme.FARBEN["akzent_hell"], btn.rect, width=3, border_radius=8)
 
         if self.klasse_id:
+            portrait = portraits.gerahmt(self.klasse_id, radius=32)
+            surface.blit(portrait, portrait.get_rect(center=(theme.BREITE // 2, 610)))
             archetyp = KLASSEN[self.klasse_id].archetyp
             zeilen = widgets.zeilenumbruch(archetyp, theme.font(15), theme.BREITE - 240)
-            y = theme.HOEHE - 150
+            y = 655
             for zeile in zeilen:
                 label = theme.font(15).render(zeile, True, theme.FARBEN["text"])
                 surface.blit(label, (theme.BREITE // 2 - label.get_width() // 2, y))
@@ -336,14 +342,23 @@ class OrtScene(Szene):
         # vorausberechnete Zeilenzahl/Höhe von der echten Darstellung ab und
         # Text würde wieder über den Button-Rand hinaus clippen.
         font = theme.font_titel(19, fett=False)
-        for label, _ in self.optionen:
+        for eintrag in self.optionen:
+            # Manche Orte (z.B. Gruppe) hängen ein drittes Element (ein
+            # Portrait-Icon) an - alle anderen bleiben beim einfachen
+            # (Text, Aktion)-Paar.
+            label, _, *rest = eintrag
+            icon = rest[0] if rest else None
+            # Muss mit dem Textbereich übereinstimmen, den Button.draw() bei
+            # vorhandenem Icon tatsächlich zur Verfügung hat (siehe dort) -
+            # sonst weicht die hier vorausberechnete Zeilenzahl wieder ab.
+            icon_zone = (icon.get_width() + 20) if icon else 0
             # Lange Beschreibungen (z.B. Quest-Einträge) brauchen mehr als
             # eine Zeile - die Button-Höhe richtet sich danach, damit der
             # Text nicht über den Rand hinaus clippt.
-            zeilen = widgets.zeilenumbruch(label, font, breite - 24)
+            zeilen = widgets.zeilenumbruch(label, font, breite - 24 - icon_zone)
             hoehe = max(hoehe_min, len(zeilen) * font.get_linesize() + 16)
             rect = (x, y, breite, hoehe)
-            self.buttons.append(Button(rect, label, groesse=19))
+            self.buttons.append(Button(rect, label, groesse=19, icon=icon))
             y += hoehe + abstand
         if self.zurueck:
             self.zurueck_button = Button((40, theme.HOEHE - 76, 160, 46), "◀ Zurück", groesse=19)
@@ -357,7 +372,7 @@ class OrtScene(Szene):
             self.app.wechsle_szene(self.zurueck())
 
     def _waehle(self, idx):
-        _, aktion = self.optionen[idx]
+        _, aktion, *_rest = self.optionen[idx]
         ergebnis = aktion()
         if isinstance(ergebnis, Submenu):
             zurueck_ziel = self

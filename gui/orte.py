@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from game.classes import AUFSTIEGSPFADE, KLASSEN
+from gui import portraits
 from game.endgame import (
     daemonenjagd_verfuegbar,
     demonenkoenig_verfuegbar,
@@ -182,7 +183,7 @@ def _gruppe_rekruten_submenu(charakter) -> Submenu:
     opts = []
     for r in rekruten:
         kosten = rekrutierungskosten(r)
-        opts.append((f"{r.anzeige()} - {kosten}g", anheuern(r, kosten)))
+        opts.append((f"{r.anzeige()} - {kosten}g", anheuern(r, kosten), portraits.gerahmt(r.klasse_id, radius=22)))
     opts.append(("Niemanden anheuern", lambda: Ereignis(text=f"{charakter.name} findet niemand Passendes und kehrt zurück.", kostet_aktion=False)))
     return Submenu(f"🤝 Mögliche Rekruten für {charakter.name}s Gruppe (Gold: {charakter.gold})", opts)
 
@@ -196,7 +197,10 @@ def optionen_gruppe(charakter) -> list[tuple[str, Aktion]]:
             return Ereignis(text=f"{charakter.name} verabschiedet sich von {b.name} - hier trennen sich ihre Wege.", kostet_aktion=False)
         return aktion
 
-    opts = [(f"{b.anzeige()} - Entlassen [Ausrüstung: {b.ausruestung_kurzuebersicht()}]", entlassen(b)) for b in list(charakter.begleiter)]
+    opts = [
+        (f"{b.anzeige()} - Entlassen [Ausrüstung: {b.ausruestung_kurzuebersicht()}]", entlassen(b), portraits.gerahmt(b.klasse_id, radius=22))
+        for b in list(charakter.begleiter)
+    ]
     if len(charakter.begleiter) < 3:
         opts.append(("Neue Abenteurer kennenlernen (anheuern)", lambda: _gruppe_rekruten_submenu(charakter)))
     return opts

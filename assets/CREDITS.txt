@@ -28,3 +28,9 @@ Musik (Creative Commons Zero 1.0 - CC0, keine Nennung erforderlich):
     Bezug: https://opengameart.org/content/the-field-of-dreams
   - "Medieval: The Old Tower Inn" - assets/musik/erkundung_taverne.mp3
     Bezug: https://opengameart.org/content/medieval-the-old-tower-inn
+
+Portraits (Creative Commons Zero 1.0 - CC0, keine Nennung erforderlich):
+  - "RPG Characters Avatars" von System G6 / Qoma
+    Daraus abgeleitet: assets/portraits/portrait_01.png bis portrait_08.png
+    (einzeln zugeschnitten, farblich vereinheitlicht, Vignette)
+  Bezug: https://opengameart.org/content/rpg-characters-avatars

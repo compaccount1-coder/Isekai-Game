@@ -87,13 +87,14 @@ def trennlinie(surface, mitte_x, y, breite=340):
 
 
 class Button:
-    def __init__(self, rect, text, groesse=22, enabled=True, subtitle=None, subtitle_groesse=15):
+    def __init__(self, rect, text, groesse=22, enabled=True, subtitle=None, subtitle_groesse=15, icon=None):
         self.rect = pygame.Rect(rect)
         self.text = text
         self.font = theme.font_titel(groesse, fett=False)
         self.enabled = enabled
         self.subtitle = subtitle
         self.subtitle_font = theme.font(subtitle_groesse) if subtitle else None
+        self.icon = icon  # optionale pygame.Surface (z.B. ein Klassen-Portrait), links im Button
         self.hover = False
         # 0 = normaler Zustand, 1 = voll "aufgehellt" - nähert sich beim
         # Zeichnen sanft an, statt beim Drüberfahren hart umzuspringen.
@@ -143,20 +144,31 @@ class Button:
             glanz_surf.fill((255, 255, 255, 30))
             surface.blit(glanz_surf, glanz.topleft)
 
+        icon_zone = 0
+        if self.icon:
+            icon_rect = self.icon.get_rect(midleft=(self.rect.x + 14, self.rect.centery))
+            surface.blit(self.icon, icon_rect)
+            # Textbereich um die Icon-Zone verkleinern und die Zentrierachse
+            # entsprechend nach rechts verschieben - sonst überlappt bei
+            # langen, fast vollbreiten Texten (z.B. Begleiter-Zeilen) das
+            # Icon den Zeilenanfang.
+            icon_zone = icon_rect.width + 20
+
         text_farbe = theme.FARBEN["text"] if self.enabled else theme.FARBEN["text_dim"]
         mitte_y = self.rect.centery - (10 if self.subtitle else 0)
+        text_mitte_x = self.rect.centerx + icon_zone // 2
         # Lange Texte (z.B. ausführliche Quest-Beschreibungen) würden als eine
         # Zeile seitlich über den Button hinauslaufen - stattdessen auf so
         # viele Zeilen umbrechen, wie innerhalb der Button-Breite passen, und
         # als Block vertikal zentriert darstellen.
-        max_breite = self.rect.width - 24
+        max_breite = self.rect.width - 24 - icon_zone
         zeilen = zeilenumbruch(self.text, self.font, max_breite) if self.font.size(self.text)[0] > max_breite else [self.text]
         zeilenhoehe = self.font.get_linesize()
         block_hoehe = zeilenhoehe * len(zeilen)
         start_y = mitte_y - block_hoehe // 2
         for i, zeile in enumerate(zeilen):
             label = self.font.render(zeile, True, text_farbe)
-            label_rect = label.get_rect(center=(self.rect.centerx, start_y + zeilenhoehe * i + zeilenhoehe // 2))
+            label_rect = label.get_rect(center=(text_mitte_x, start_y + zeilenhoehe * i + zeilenhoehe // 2))
             surface.blit(label, label_rect)
 
         if self.subtitle:
