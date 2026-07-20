@@ -416,6 +416,10 @@ class KampfScene(Szene):
         self.ort_id = ort_id
         self.scroll = 0
         self._auto_scroll = True
+        # Nur die Zeilen der AKTUELLEN Runde werden angezeigt (siehe _runde) -
+        # das volle Log bleibt in self.kampf.log unangetastet erhalten, u.a.
+        # für die Zusammenfassung in MeldungScene nach Kampfende.
+        self.sichtbares_log: list[str] = list(self.kampf.log)
         # Die Logzeile muss unterhalb sowohl der Gegner-HP-Balken (mittig) als
         # auch der Begleiter-HP-Balken (links) beginnen - je nachdem, welche
         # der beiden Spalten mehr Zeilen braucht.
@@ -531,7 +535,11 @@ class KampfScene(Szene):
                     return
 
     def _runde(self, aktion, gegner_ziel=None, verbuendeter_ziel=None):
-        self.kampf.runde_ausfuehren(aktion, gegner_ziel=gegner_ziel, verbuendeter_ziel=verbuendeter_ziel)
+        neue_zeilen = self.kampf.runde_ausfuehren(aktion, gegner_ziel=gegner_ziel, verbuendeter_ziel=verbuendeter_ziel)
+        # Nur die neuen Zeilen dieser Runde anzeigen statt das komplette Log
+        # anwachsen zu lassen - macht mehrrundige Kämpfe deutlich übersichtlicher.
+        self.sichtbares_log = neue_zeilen if neue_zeilen else self.sichtbares_log
+        self.scroll = 0
         self._schwebetexte_erzeugen()
         self._auto_scroll = True
         if self.kampf.beendet:
@@ -593,7 +601,7 @@ class KampfScene(Szene):
 
         widgets.panel(surface, self._textrect, ornament=True)
         innen = self._textrect.inflate(-30, -30)
-        log_text = "\n".join(self.kampf.log)
+        log_text = "\n".join(self.sichtbares_log)
         gesamthoehe = widgets.text_block(surface, log_text, theme.font(16), theme.FARBEN["text"], innen, scroll=self.scroll)
         if self._auto_scroll:
             self.scroll = max(0, gesamthoehe - innen.height)

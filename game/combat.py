@@ -159,6 +159,24 @@ class Kampfgegner:
     hp_max: int
     angriffskraft: int
     angriffe: list[str] = field(default_factory=list)
+    # Vergiftung (Damage over Time): schaden_debuff-Fähigkeiten vergiften den
+    # Gegner statt seine Angriffskraft dauerhaft zu senken - der Schaden
+    # tickt zu Beginn jeder folgenden Runde eigenständig.
+    vergiftung_schaden: int = 0
+    vergiftung_runden: int = 0
+    # Schwächung: zeitlich begrenzte (statt dauerhafte) Reduktion der
+    # Angriffskraft durch debuff-Fähigkeiten.
+    schwaechung_staerke: float = 0.0
+    schwaechung_runden: int = 0
+    # MMO-artige Bedrohungstabelle: Bedrohungswert je potenziellem Ziel
+    # (Schlüssel: id() von Charakter/Begleiter). Der Gegner greift bevorzugt
+    # an, wer die meiste Bedrohung aufgebaut hat - siehe Kampf._waehle_angriffsziel.
+    aggro: dict = field(default_factory=dict)
+
+    def angriffskraft_effektiv(self) -> int:
+        if self.schwaechung_runden > 0:
+            return max(1, int(self.angriffskraft * (1 - self.schwaechung_staerke)))
+        return self.angriffskraft
 
 
 def _erzeuge_gegner(name: str, staerke: int) -> Kampfgegner:
@@ -214,6 +232,7 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
             schaden = max(1, int(anteil * random.uniform(0.9, 1.3)))
             gegner.hp = max(0, gegner.hp - schaden)
             kampf._notiere(gegner, -schaden)
+            kampf._aggro_hinzufuegen(gegner, b, schaden)
             log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
         elif b.rolle == "Unterstützer":
             effekt = skill_effekt(skill.name)
@@ -222,6 +241,8 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
                     mult = 1.6 if effekt == "notheilung" else 1.0
                     heilung = charakter.heilen(max(1, int(anteil * random.uniform(0.8, 1.2) * mult)))
                     kampf._notiere(charakter, heilung)
+                    for g in gegner_lebend:
+                        kampf._aggro_hinzufuegen(g, b, heilung * 0.5)
                     log.append(f"   {b.name} setzt {skill.name} ein und heilt {charakter.name} um {heilung} HP. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
                 else:
                     log.append(f"   {b.name} setzt {skill.name} ein, doch {charakter.name} braucht keine Heilung.")
@@ -234,26 +255,40 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
                         heilung_andere = andere.heilen(max(1, int(anteil * random.uniform(0.4, 0.7))))
                         kampf._notiere(andere, heilung_andere)
                         gesamt += heilung_andere
+                for g in gegner_lebend:
+                    kampf._aggro_hinzufuegen(g, b, gesamt * 0.4)
                 log.append(f"   {b.name} setzt {skill.name} ein und heilt die gesamte Gruppe (insgesamt {gesamt} HP).")
             elif effekt in ("schaden", "schaden_debuff"):
                 schaden = max(1, int(anteil * random.uniform(0.7, 1.0)))
                 gegner.hp = max(0, gegner.hp - schaden)
                 kampf._notiere(gegner, -schaden)
+                kampf._aggro_hinzufuegen(gegner, b, schaden)
                 if effekt == "schaden_debuff":
-                    gegner.angriffskraft = max(1, int(gegner.angriffskraft * 0.92))
-                log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+                    gift_schaden = max(1, int(anteil * 0.18))
+                    gegner.vergiftung_schaden = max(gegner.vergiftung_schaden, gift_schaden)
+                    gegner.vergiftung_runden = max(gegner.vergiftung_runden, 3)
+                    log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden, vergiftet ihn zusätzlich. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+                else:
+                    log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
             elif effekt == "buff":
                 kampf.spieler_bonus_naechste_runde += 0.15
                 log.append(f"   {b.name} setzt {skill.name} ein und verstärkt {charakter.name}s nächsten Angriff.")
             elif effekt == "debuff":
-                gegner.angriffskraft = max(1, int(gegner.angriffskraft * 0.92))
-                log.append(f"   {b.name} setzt {skill.name} ein und schwächt {gegner.name}.")
-            else:  # schild / aggro / gruppenschild / reflexion (Begleiter wirken diese nur einmalig, kein Dauerzustand)
+                gegner.schwaechung_staerke = max(gegner.schwaechung_staerke, 0.15)
+                gegner.schwaechung_runden = max(gegner.schwaechung_runden, 3)
+                log.append(f"   {b.name} setzt {skill.name} ein und schwächt {gegner.name} für 3 Runden.")
+            elif effekt == "aggro":
+                for g in gegner_lebend:
+                    kampf._aggro_hinzufuegen(g, b, 9999)
+                schadensreduktion += 0.1
+                log.append(f"   {b.name} setzt {skill.name} ein und zieht {gegner.name}s Aufmerksamkeit auf sich.")
+            else:  # schild / gruppenschild / reflexion (Begleiter wirken diese nur einmalig, kein Dauerzustand)
                 schadensreduktion += 0.15
                 log.append(f"   {b.name} setzt {skill.name} ein und schirmt {charakter.name} ab.")
         else:  # Nahkämpfer - zieht als Tank die Aufmerksamkeit auf sich
             schaden = max(1, int(anteil * random.uniform(0.5, 0.8)))
             gegner.hp = max(0, gegner.hp - schaden)
+            kampf._aggro_hinzufuegen(gegner, b, schaden * 1.8)
             kampf._notiere(gegner, -schaden)
             schadensreduktion += 0.12
             log.append(f"   {b.name} setzt {skill.name} ein, zieht {gegner.name}s Aufmerksamkeit auf sich und trifft für {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
@@ -318,6 +353,15 @@ class Kampf:
         if betrag != 0:
             self.letzte_zahlen.append((ziel, betrag))
 
+    def _aggro_hinzufuegen(self, gegner: Kampfgegner, ziel, betrag: float) -> None:
+        """Erhöht die Bedrohung, die `ziel` (Charakter oder Begleiter) bei
+        `gegner` aufgebaut hat - Grundlage der MMO-artigen Zielwahl in
+        _waehle_angriffsziel. Schlüssel ist id(ziel), da Charakter/Begleiter
+        nicht hashbar sind."""
+        if betrag <= 0:
+            return
+        gegner.aggro[id(ziel)] = gegner.aggro.get(id(ziel), 0.0) + betrag
+
     def gegner_lebend(self) -> list[Kampfgegner]:
         return [g for g in self.gegnergruppe if g.hp > 0]
 
@@ -359,6 +403,27 @@ class Kampf:
         zeilen = [f"-- Runde {self.runde + 1} --"]
         self.runde += 1
         self.letzte_zahlen = []
+
+        # Vergiftung tickt zu Beginn jeder Runde, bevor irgendjemand handelt -
+        # so bleibt Gift auch dann relevant, wenn der Spieler danach z.B. heilt.
+        for gegner in self.gegner_lebend():
+            if gegner.vergiftung_runden > 0:
+                gift_schaden = min(gegner.hp, gegner.vergiftung_schaden)
+                gegner.hp = max(0, gegner.hp - gift_schaden)
+                self._notiere(gegner, -gift_schaden)
+                gegner.vergiftung_runden -= 1
+                zeilen.append(f"   ☠️ {gegner.name} erleidet {gift_schaden} Giftschaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
+                if gegner.hp <= 0:
+                    zeilen.append(f"   💀 {gegner.name} erliegt dem Gift!")
+            if gegner.schwaechung_runden > 0:
+                gegner.schwaechung_runden -= 1
+
+        if not self.gegner_lebend():
+            zeilen.append("   🏆 Alle Gegner sind besiegt!" if len(self.gegnergruppe) > 1 else "")
+            self.beendet = True
+            self.sieg = True
+            self.log.extend(z for z in zeilen if z)
+            return [z for z in zeilen if z]
 
         if charakter.hp_aktuell < charakter.hp_max * 0.3:
             trank_meldung = charakter.bestes_trank_automatisch_nutzen("Heilung")
@@ -408,11 +473,15 @@ class Kampf:
                     schaden = int(schaden * 1.6)
                 ziel.hp = max(0, ziel.hp - schaden)
                 self._notiere(ziel, -schaden)
-                if effekt == "schaden_debuff":
-                    ziel.angriffskraft = max(1, int(ziel.angriffskraft * 0.9))
+                self._aggro_hinzufuegen(ziel, charakter, schaden)
+                if effekt == "schaden_debuff" and ziel.hp > 0:
+                    gift_schaden = max(1, int(kampfkraft_basis * 0.045 * (1 + skill_level * 0.04)))
+                    ziel.vergiftung_schaden = max(ziel.vergiftung_schaden, gift_schaden)
+                    ziel.vergiftung_runden = max(ziel.vergiftung_runden, 3)
                 krit_text = " (KRITISCHER TREFFER!)" if kritisch else ""
                 verstaerkt_text = " (VERSTÄRKT!)" if bonus > 1.0 else ""
-                zeilen.append(f"   {charakter.name} {aktionsname}{krit_text}{verstaerkt_text} - {schaden} Schaden an {ziel.name}. [{ziel.name}: {ziel.hp}/{ziel.hp_max} HP]")
+                gift_text = " ☠️ (VERGIFTET!)" if effekt == "schaden_debuff" and ziel.hp > 0 else ""
+                zeilen.append(f"   {charakter.name} {aktionsname}{krit_text}{verstaerkt_text}{gift_text} - {schaden} Schaden an {ziel.name}. [{ziel.name}: {ziel.hp}/{ziel.hp_max} HP]")
                 if ziel.hp <= 0:
                     zeilen.append(f"   💀 {ziel.name} ist besiegt!")
         elif effekt in ("heilung", "notheilung"):
@@ -421,6 +490,8 @@ class Kampf:
             heilmenge = max(1, int(empfaenger.hp_max * (basis_anteil + skill_level * 0.02)))
             geheilt = empfaenger.heilen(heilmenge)
             self._notiere(empfaenger, geheilt)
+            for gegner in self.gegner_lebend():
+                self._aggro_hinzufuegen(gegner, charakter, geheilt * 0.5)
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt {empfaenger.name} um {geheilt} HP. [{empfaenger.name}: {empfaenger.hp_aktuell}/{empfaenger.hp_max} HP]")
         elif effekt == "gruppenheilung":
             gesamt = 0
@@ -428,6 +499,8 @@ class Kampf:
                 geheilt = ziel.heilen(max(1, int(ziel.hp_max * (0.18 + skill_level * 0.015) * signatur_mult)))
                 self._notiere(ziel, geheilt)
                 gesamt += geheilt
+            for gegner in self.gegner_lebend():
+                self._aggro_hinzufuegen(gegner, charakter, gesamt * 0.4)
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt die gesamte Gruppe (insgesamt {gesamt} HP).")
         elif effekt == "buff":
             ziel = verbuendeter_ziel if verbuendeter_ziel is not None else charakter
@@ -438,10 +511,22 @@ class Kampf:
             else:
                 ziel.loyalitaet = min(100, ziel.loyalitaet + 0)  # keine Nebenwirkung, nur Marker für Lesbarkeit
                 zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und beflügelt {ziel.name} für die nächste Aktion.")
-        elif effekt in ("schild", "aggro"):
+        elif effekt == "schild":
             self.schild_runden = max(self.schild_runden, 1)
             self.schild_staerke = max(self.schild_staerke, 0.2 + skill_level * 0.015)
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und wappnet sich für den Gegenschlag.")
+        elif effekt == "aggro":
+            # Echtes MMO-Taunt: ein massiver Bedrohungsstoß auf ALLE lebenden
+            # Gegner garantiert, dass sie sich für die nächsten Runden auf den
+            # Charakter konzentrieren, statt Begleiter anzugreifen - genau das
+            # macht einen Tank zum Beschützer der Gruppe. Ein Rest an
+            # Schadensreduktion bleibt als thematische Nebenwirkung erhalten.
+            taunt_wert = 9999 + skill_level * 10
+            for gegner in self.gegner_lebend():
+                self._aggro_hinzufuegen(gegner, charakter, taunt_wert)
+            self.schild_runden = max(self.schild_runden, 2)
+            self.schild_staerke = max(self.schild_staerke, 0.15 + skill_level * 0.01)
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und zieht die Aufmerksamkeit aller Gegner auf sich!")
         elif effekt == "gruppenschild":
             dauer = skill_dauer(gewaehlte_aktion)
             self.schild_runden = max(self.schild_runden, dauer)
@@ -455,10 +540,12 @@ class Kampf:
         elif effekt == "debuff":
             lebend = self.gegner_lebend()
             ziele = lebend if aoe else ([gegner_ziel] if gegner_ziel is not None and gegner_ziel.hp > 0 else lebend[:1])
+            staerke = 0.12 + skill_level * 0.005
             for ziel in ziele:
-                ziel.angriffskraft = max(1, int(ziel.angriffskraft * (0.92 - skill_level * 0.005)))
+                ziel.schwaechung_staerke = max(ziel.schwaechung_staerke, staerke)
+                ziel.schwaechung_runden = max(ziel.schwaechung_runden, 3)
             namen = " und ".join(z.name for z in ziele)
-            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und schwächt {namen}.")
+            zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und schwächt {namen} für 3 Runden.")
 
         if not self.gegner_lebend():
             zeilen.append("   🏆 Alle Gegner sind besiegt!" if len(self.gegnergruppe) > 1 else "")
@@ -477,10 +564,10 @@ class Kampf:
         for gegner in self.gegner_lebend():
             if not charakter.lebendig:
                 break
-            ziel = self._waehle_angriffsziel()
+            ziel = self._waehle_angriffsziel(gegner)
             ziel_ist_spieler = ziel is charakter
             angriffsname = random.choice(gegner.angriffe) if gegner.angriffe else "kontert"
-            gegen_schaden = int(gegner.angriffskraft * random.uniform(0.14, 0.22))
+            gegen_schaden = int(gegner.angriffskraft_effektiv() * random.uniform(0.14, 0.22))
             gruppenschild = self.schild_staerke if self.schild_runden > 0 else 0.0
             persoenlicher_schild = charakter.schadensreduktion() if ziel_ist_spieler else 0.0
             gesamt_reduktion = min(0.8, schadensreduktion + persoenlicher_schild + gruppenschild)
@@ -544,20 +631,29 @@ class Kampf:
         self.log.extend(zeilen)
         return zeilen
 
-    def _waehle_angriffsziel(self):
-        """Wählt, wen ein angreifender Gegner trifft: meist den Anführer, aber
-        ungeschützte Begleiter können ebenfalls getroffen werden. Eine aktive
-        Gruppenschutz-/Aggro-Fähigkeit (schild_runden) lenkt Angriffe
-        zuverlässiger auf den Anführer um - genau das macht einen Tank zum
-        Beschützer der Gruppe, nicht nur zu einem persönlich zäheren Kämpfer."""
+    def _waehle_angriffsziel(self, gegner: Kampfgegner):
+        """MMO-artige Zielwahl: jeder Gegner führt seine EIGENE Bedrohungstabelle
+        (siehe Kampfgegner.aggro/_aggro_hinzufuegen) und greift bevorzugt an,
+        wer die meiste Bedrohung aufgebaut hat - Schaden baut Bedrohung 1:1
+        auf, Heilung anteilig, und Tank-Fähigkeiten wie Spott/Provokation
+        erzeugen einen massiven Bedrohungsstoß, der den Charakter zuverlässig
+        zum bevorzugten Ziel macht. Ein kleiner Zufallsanteil verhindert, dass
+        sich das Verhalten zu mechanisch anfühlt, und dient gleichzeitig als
+        Fallback, solange noch gar keine Bedrohung aufgebaut wurde."""
         charakter = self.charakter
         lebende_begleiter = [b for b in charakter.begleiter if not b.niedergeschlagen]
         if not lebende_begleiter:
             return charakter
+        ziele = [charakter] + lebende_begleiter
+        if gegner.aggro and random.random() < 0.85:
+            bewertungen = [(z, gegner.aggro.get(id(z), 0.0)) for z in ziele]
+            hoechste = max(wert for _, wert in bewertungen)
+            if hoechste > 0:
+                spitzenreiter = [z for z, wert in bewertungen if wert == hoechste]
+                return random.choice(spitzenreiter)
         geschuetzt = self.schild_runden > 0
         spieler_gewicht = 75 if geschuetzt else 45
         gewichte = [spieler_gewicht] + [(15 if b.rolle == "Nahkämpfer" else 25) for b in lebende_begleiter]
-        ziele = [charakter] + lebende_begleiter
         return random.choices(ziele, weights=gewichte, k=1)[0]
 
     def _begleiter_funde_verarbeiten(self) -> int:
@@ -571,7 +667,7 @@ class Kampf:
         for b in self.charakter.begleiter:
             if b.niedergeschlagen or random.random() >= 0.25:
                 continue
-            fund = generiere_item(b.level)
+            fund = generiere_item(b.level, klasse_id=b.klasse_id)
             text, erloes = b.fund_verarbeiten(fund)
             self.log.append(f"   🎒 {text}")
             gesamt_erloes += erloes

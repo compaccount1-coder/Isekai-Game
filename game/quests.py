@@ -117,7 +117,7 @@ def quest_abschliessen(charakter, quest: Quest) -> "Ereignis | Kampfstart":
             log.append(f"✅ Quest erfüllt! Belohnung: {quest.belohnung_gold}g, {quest.belohnung_xp} XP.")
             log.extend(meldungen)
             if random.random() < 0.15 + 0.03 * RANG_REIHENFOLGE.index(quest.rang):
-                item = generiere_item(charakter.level)
+                item = generiere_item(charakter.level, klasse_id=charakter.klasse_id)
                 log.append(charakter.fund_verarbeiten(item))
             return Ereignis(text=f"Quest erfolgreich: {quest.titel}", log=log, ist_wichtig=True)
         else:

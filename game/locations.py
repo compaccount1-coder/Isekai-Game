@@ -236,7 +236,7 @@ def besuche_taverne(charakter: Charakter) -> Ereignis:
 # ---------------------------------------------------------------------------
 
 def _markt_feilschen(charakter: Charakter) -> Ereignis:
-    item = generiere_item(charakter.level)
+    item = generiere_item(charakter.level, klasse_id=charakter.klasse_id)
     voller_preis = item.wert
     verhandelt_preis = int(voller_preis * random.uniform(0.55, 0.85))
     if charakter.gold >= verhandelt_preis:
@@ -572,7 +572,7 @@ def _wildnis_reisende(charakter: Charakter) -> Ereignis:
     name = random.choice(NPC_VORNAMEN)
     text = f"🧳 Auf dem Weg begegnet {charakter.name} dem Reisenden {name}. Man teilt eine Mahlzeit und Geschichten von der Straße."
     if random.random() < 0.3:
-        item = generiere_item(charakter.level)
+        item = generiere_item(charakter.level, klasse_id=charakter.klasse_id)
         text += f" Zum Abschied schenkt {name} ihm {item.anzeige()}."
         return Ereignis(text=text, xp=int(10 * charakter.level), ruf=1, item=item)
     return Ereignis(text=text, xp=int(10 * charakter.level), ruf=1)

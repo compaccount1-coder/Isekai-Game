@@ -100,10 +100,10 @@ def _dungeon_boss(charakter, dungeon, basis_staerke, text, gesamt_log, gesamt_xp
             return Ereignis(text=text, xp=neues_xp, gold=neues_gold, log=neues_log)
         if ergebnis.sieg:
             # Garantierter hochwertiger Boss-Loot, plus Chance auf ein weiteres reguläres Fundstück.
-            boss_item = generiere_item(charakter.level, mindest_seltenheit="Selten")
+            boss_item = generiere_item(charakter.level, mindest_seltenheit="Selten", klasse_id=charakter.klasse_id)
             neues_log.append(f"{charakter.name} durchquert den gesamten Dungeon siegreich!")
             if random.random() < 0.4:
-                neues_log.append(charakter.fund_verarbeiten(generiere_item(charakter.level)))
+                neues_log.append(charakter.fund_verarbeiten(generiere_item(charakter.level, klasse_id=charakter.klasse_id)))
             return Ereignis(text=text, xp=neues_xp, gold=neues_gold, item=boss_item, log=neues_log, ist_wichtig=True)
         else:
             neues_log.append(f"{boss_name} erweist sich als zu mächtig - {charakter.name} zieht sich mit der bisherigen Beute zurück.")
@@ -146,7 +146,7 @@ def ereignis_daemon(charakter: Charakter) -> "Ereignis | Kampfstart":
 
 def ereignis_schatzfund(charakter: Charakter) -> Ereignis:
     art = random.choice(["Truhe", "Höhle", "verborgenes Grab", "Ruine", "Leiche eines gefallenen Abenteurers"])
-    item = generiere_item(charakter.level)
+    item = generiere_item(charakter.level, klasse_id=charakter.klasse_id)
     gold_bonus = random.randint(10, 50) * max(1, charakter.level // 10)
     text = f"💰 {charakter.name} entdeckt eine {art} und findet {gold_bonus} Gold sowie {item.anzeige()}!"
     return Ereignis(text=text, gold=gold_bonus, item=item)
@@ -187,7 +187,7 @@ def ereignis_rivale(charakter: Charakter) -> "Ereignis | Kampfstart":
 
 def ereignis_haendler(charakter: Charakter) -> Ereignis:
     name = random.choice(NPC_VORNAMEN)
-    item = generiere_item(charakter.level)
+    item = generiere_item(charakter.level, klasse_id=charakter.klasse_id)
     preis = int(item.wert * random.uniform(0.6, 0.9))  # Handelspreis meist unter Wert
     if charakter.gold >= preis and random.random() < 0.7:
         charakter.gold -= preis
@@ -308,7 +308,7 @@ def ereignis_legendaer(charakter: Charakter) -> Ereignis:
     ]
     vorlage, xp_mult, gold = random.choice(ereignisse)
     text = "🌟 " + vorlage.format(name=charakter.name)
-    item = generiere_item(charakter.level, typ=None) if random.random() < 0.5 else None
+    item = generiere_item(charakter.level, typ=None, klasse_id=charakter.klasse_id) if random.random() < 0.5 else None
     return Ereignis(
         text=text, xp=int(50 * charakter.level * xp_mult), gold=gold, ruf=15,
         item=item, ist_wichtig=True,

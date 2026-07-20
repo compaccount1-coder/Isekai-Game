@@ -3,6 +3,8 @@
 import random
 from dataclasses import dataclass, field
 
+from game.classes import KLASSEN
+
 SELTENHEIT_STUFEN = [
     ("Gewöhnlich", 1.0, 0.40, 10),
     ("Ungewöhnlich", 1.3, 0.28, 25),
@@ -22,6 +24,39 @@ RUESTUNG_BASIS = [
 ACCESSOIRE_BASIS = [
     "Ring", "Amulett", "Talisman", "Anhänger", "Armreif", "Siegelring", "Kette", "Brosche",
 ]
+
+# Klassengebundene Waffen-/Rüstungsauswahl: ein Krieger findet keinen Bogen,
+# ein Magier keinen Kriegshammer usw. - jede Klasse zieht nur aus den Waffen,
+# die zu ihrem Kampfstil passen. Accessoires bleiben bewusst unrestringiert
+# (Ringe/Amulette passen thematisch zu jeder Klasse), ihre Statverteilung
+# folgt stattdessen den Stat-Gewichten der Klasse (siehe _gewichtete_stat_auswahl).
+WAFFEN_JE_KLASSE: dict[str, list[str]] = {
+    "krieger": ["Schwert", "Axt", "Streitkolben", "Speer", "Kriegshammer", "Klinge", "Katana"],
+    "paladin": ["Schwert", "Streitkolben", "Klinge", "Speer"],
+    "moench": ["Kampfstab", "Streitkolben", "Dolch"],
+    "assassine": ["Dolch", "Klinge", "Katana", "Rapier"],
+    "magier": ["Stab", "Zepter", "Kampfstab"],
+    "nekromant": ["Stab", "Zepter", "Dolch"],
+    "beschwoerer": ["Stab", "Zepter", "Kampfstab"],
+    "waldlaeufer": ["Bogen", "Armbrust", "Dolch"],
+    "barde": ["Rapier", "Dolch", "Klinge"],
+    "kleriker": ["Streitkolben", "Zepter", "Kampfstab"],
+    "alchemist": ["Dolch", "Zepter", "Kampfstab"],
+}
+
+RUESTUNG_JE_KLASSE: dict[str, list[str]] = {
+    "krieger": ["Plattenpanzer", "Kettenhemd", "Brustpanzer", "Rüstung", "Schuppenpanzer"],
+    "paladin": ["Plattenpanzer", "Kettenhemd", "Brustpanzer", "Rüstung"],
+    "moench": ["Lederkleidung", "Mantel", "Umhang"],
+    "assassine": ["Lederkleidung", "Mantel", "Umhang"],
+    "waldlaeufer": ["Lederkleidung", "Mantel", "Umhang", "Schuppenpanzer"],
+    "barde": ["Lederkleidung", "Mantel", "Gewand"],
+    "magier": ["Robe", "Gewand", "Umhang"],
+    "nekromant": ["Robe", "Gewand", "Umhang"],
+    "beschwoerer": ["Robe", "Gewand", "Umhang"],
+    "kleriker": ["Robe", "Gewand", "Rüstung"],
+    "alchemist": ["Robe", "Gewand", "Lederkleidung"],
+}
 
 PRAEFIXE_NACH_SELTENHEIT = {
     "Gewöhnlich": ["Einfaches", "Grundlegendes", "Solides", "Schlichtes"],
@@ -71,14 +106,38 @@ def _wuerfle_seltenheit(mindest_seltenheit: str | None = None) -> tuple[str, flo
     return stufe[0], stufe[1], stufe[3]
 
 
-def generiere_item(mindest_level: int = 1, typ: str | None = None, mindest_seltenheit: str | None = None) -> Item:
+def _gewichtete_stat_auswahl(moegliche_stats: tuple, anzahl: int, gewichte: dict[str, float]) -> list[str]:
+    """Zieht `anzahl` Stats ohne Zurücklegen aus `moegliche_stats`, gewichtet
+    nach den Stat-Gewichten der Klasse - ein Magier findet also eher INT/WIS-
+    lastige Ausrüstung als ein Krieger, auch bei Accessoires (deren Namen
+    selbst klassenunabhängig bleiben)."""
+    pool = list(moegliche_stats)
+    ausgewaehlt = []
+    for _ in range(min(anzahl, len(pool))):
+        gewichtsliste = [max(0.1, gewichte.get(stat, 1.0)) for stat in pool]
+        wahl = random.choices(pool, weights=gewichtsliste, k=1)[0]
+        ausgewaehlt.append(wahl)
+        pool.remove(wahl)
+    return ausgewaehlt
+
+
+def generiere_item(mindest_level: int = 1, typ: str | None = None, mindest_seltenheit: str | None = None, klasse_id: str | None = None) -> Item:
+    """Erzeugt ein zufälliges Item. Mit `klasse_id` wird die Ausrüstung
+    klassengebunden: Waffen-/Rüstungsart stammen nur aus dem zur Klasse
+    passenden Pool (siehe WAFFEN_JE_KLASSE/RUESTUNG_JE_KLASSE) und die
+    Statverteilung bevorzugt die Stats, die diese Klasse ohnehin gewichtet.
+    Ohne `klasse_id` (z.B. für generische/klassenunabhängige Kontexte)
+    bleibt die Auswahl wie zuvor komplett unrestringiert."""
     typ = typ or random.choice(["Waffe", "Ruestung", "Accessoire"])
     seltenheit, multiplikator, basiswert = _wuerfle_seltenheit(mindest_seltenheit)
+    klasse = KLASSEN.get(klasse_id) if klasse_id else None
 
     if typ == "Waffe":
-        basis = random.choice(WAFFEN_BASIS)
+        pool = WAFFEN_JE_KLASSE.get(klasse_id, WAFFEN_BASIS) if klasse_id else WAFFEN_BASIS
+        basis = random.choice(pool)
     elif typ == "Ruestung":
-        basis = random.choice(RUESTUNG_BASIS)
+        pool = RUESTUNG_JE_KLASSE.get(klasse_id, RUESTUNG_BASIS) if klasse_id else RUESTUNG_BASIS
+        basis = random.choice(pool)
     else:
         basis = random.choice(ACCESSOIRE_BASIS)
 
@@ -89,7 +148,10 @@ def generiere_item(mindest_level: int = 1, typ: str | None = None, mindest_selte
 
     moegliche_stats = STAT_PRO_TYP[typ]
     anzahl_stats = 1 if seltenheit in ("Gewöhnlich", "Ungewöhnlich") else min(2, len(moegliche_stats))
-    gewaehlte_stats = random.sample(moegliche_stats, anzahl_stats)
+    if klasse:
+        gewaehlte_stats = _gewichtete_stat_auswahl(moegliche_stats, anzahl_stats, klasse.stat_gewichte)
+    else:
+        gewaehlte_stats = random.sample(moegliche_stats, anzahl_stats)
 
     basis_bonus = max(1, mindest_level // 8)
     stat_boni = {
