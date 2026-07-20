@@ -1,15 +1,90 @@
-"""Wiederverwendbare UI-Bausteine: Buttons, Textfelder, Balken, Textumbruch."""
+"""Wiederverwendbare UI-Bausteine: Buttons, Textfelder, Balken, Textumbruch,
+sowie gemeinsame Zeichenhilfen (Verläufe, weiche Schatten, Eck-Ornamente)."""
+
+from pathlib import Path
 
 import pygame
 
 from gui import theme
 
+_ASSETS_UI = Path(__file__).resolve().parent.parent / "assets" / "ui"
+_BILD_CACHE: dict[str, "pygame.Surface"] = {}
+
+
+def _bild(name: str) -> "pygame.Surface":
+    if name not in _BILD_CACHE:
+        _BILD_CACHE[name] = pygame.image.load(str(_ASSETS_UI / name)).convert_alpha()
+    return _BILD_CACHE[name]
+
+
+# ---------------------------------------------------------------------------
+# Grundlegende Zeichenhilfen - werden von Button/panel/Statusleiste etc.
+# genutzt, damit jedes UI-Element denselben "polierten" Look teilt statt
+# flacher Ein-Farb-Rechtecke mit dünnem Rand.
+# ---------------------------------------------------------------------------
+
+def schatten(surface, rect, radius=10, versatz=(0, 4)):
+    """Simuliert einen weichen Schlagschatten über mehrere, zunehmend größere
+    und transparentere Schichten - ohne echten (teuren) Weichzeichner
+    auszukommen, aber deutlich weicher als ein einzelnes hartes Rechteck."""
+    rect = pygame.Rect(rect)
+    for wachstum, alpha in ((7, 18), (4, 30), (2, 42)):
+        s = pygame.Surface((rect.width + wachstum * 2, rect.height + wachstum * 2), pygame.SRCALPHA)
+        pygame.draw.rect(s, (*theme.FARBEN["schatten"], alpha), s.get_rect(), border_radius=radius + wachstum // 2)
+        surface.blit(s, (rect.x - wachstum + versatz[0], rect.y - wachstum + versatz[1]))
+
+
+def verlauf_rect(surface, rect, farbe_oben, farbe_unten, radius=8, bands=12):
+    """Füllt ein (optional abgerundetes) Rechteck mit einem vertikalen
+    Farbverlauf - in Bändern statt pro Pixel gezeichnet, das bleibt auch bei
+    vielen gleichzeitig sichtbaren Buttons/Panels günstig genug für 60 FPS."""
+    rect = pygame.Rect(rect)
+    temp = pygame.Surface(rect.size, pygame.SRCALPHA)
+    band_h = max(1, -(-rect.height // bands))
+    for i in range(bands):
+        t = i / max(1, bands - 1)
+        farbe = tuple(int(a + (b - a) * t) for a, b in zip(farbe_oben, farbe_unten))
+        y0 = i * band_h
+        if y0 >= rect.height:
+            break
+        y1 = min(rect.height, y0 + band_h)
+        pygame.draw.rect(temp, farbe, (0, y0, rect.width, y1 - y0))
+    if radius:
+        maske = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(maske, (255, 255, 255, 255), maske.get_rect(), border_radius=radius)
+        temp.blit(maske, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+    surface.blit(temp, rect.topleft)
+
+
+def ecken_ornament(surface, rect, groesse=26):
+    """Setzt das kleine goldene Eck-Ornament (siehe assets/ui/) an alle vier
+    Ecken eines Rechtecks - das schlichte "Programmierer-Rechteck" bekommt
+    damit einen handgemachten, fantasy-typischen Rahmen-Akzent."""
+    basis = _bild("corner_ornament.png")
+    skaliert = pygame.transform.smoothscale(basis, (groesse, groesse))
+    tl, tr = skaliert, pygame.transform.flip(skaliert, True, False)
+    bl, br = pygame.transform.flip(skaliert, False, True), pygame.transform.flip(skaliert, True, True)
+    surface.blit(tl, (rect.left - 2, rect.top - 2))
+    surface.blit(tr, (rect.right - groesse + 2, rect.top - 2))
+    surface.blit(bl, (rect.left - 2, rect.bottom - groesse + 2))
+    surface.blit(br, (rect.right - groesse + 2, rect.bottom - groesse + 2))
+
+
+def trennlinie(surface, mitte_x, y, breite=340):
+    """Zeichnet die dekorative, goldene Trennlinie (siehe assets/ui/) mittig
+    unter Überschriften - ersetzt frühere schmucklose Textblöcke ohne jede
+    visuelle Abgrenzung zum darunterliegenden Inhalt."""
+    basis = _bild("divider.png")
+    hoehe = max(1, int(basis.get_height() * (breite / basis.get_width())))
+    skaliert = pygame.transform.smoothscale(basis, (breite, hoehe))
+    surface.blit(skaliert, skaliert.get_rect(center=(mitte_x, y)))
+
 
 class Button:
-    def __init__(self, rect, text, groesse=24, enabled=True, subtitle=None, subtitle_groesse=16):
+    def __init__(self, rect, text, groesse=22, enabled=True, subtitle=None, subtitle_groesse=15):
         self.rect = pygame.Rect(rect)
         self.text = text
-        self.font = theme.font(groesse)
+        self.font = theme.font_titel(groesse, fett=False)
         self.enabled = enabled
         self.subtitle = subtitle
         self.subtitle_font = theme.font(subtitle_groesse) if subtitle else None
@@ -26,14 +101,24 @@ class Button:
         return False
 
     def draw(self, surface):
+        radius = min(12, self.rect.height // 3)
         if not self.enabled:
-            farbe = theme.FARBEN["button_deaktiviert"]
-        elif self.hover:
-            farbe = theme.FARBEN["button_hover"]
+            oben, unten, rand = theme.FARBEN["button_deaktiviert_oben"], theme.FARBEN["button_deaktiviert_unten"], theme.FARBEN["button_rand_dim"]
         else:
-            farbe = theme.FARBEN["button"]
-        pygame.draw.rect(surface, farbe, self.rect, border_radius=8)
-        pygame.draw.rect(surface, theme.FARBEN["button_rand"], self.rect, width=2, border_radius=8)
+            schatten(surface, self.rect, radius=radius, versatz=(0, 3))
+            if self.hover:
+                oben, unten, rand = theme.FARBEN["button_hover_oben"], theme.FARBEN["button_hover_unten"], theme.FARBEN["akzent_hell"]
+            else:
+                oben, unten, rand = theme.FARBEN["button_oben"], theme.FARBEN["button_unten"], theme.FARBEN["button_rand"]
+        verlauf_rect(surface, self.rect, oben, unten, radius=radius)
+        pygame.draw.rect(surface, rand, self.rect, width=2, border_radius=radius)
+        if self.enabled:
+            # Dünner heller Glanzstreifen an der Oberkante - macht aus dem
+            # Verlauf ein "poliertes" statt nur zweifarbiges Rechteck.
+            glanz = pygame.Rect(self.rect.x + radius, self.rect.y + 2, max(0, self.rect.width - radius * 2), 2)
+            glanz_surf = pygame.Surface(glanz.size, pygame.SRCALPHA)
+            glanz_surf.fill((255, 255, 255, 30))
+            surface.blit(glanz_surf, glanz.topleft)
 
         text_farbe = theme.FARBEN["text"] if self.enabled else theme.FARBEN["text_dim"]
         mitte_y = self.rect.centery - (10 if self.subtitle else 0)
@@ -81,8 +166,8 @@ class TextEingabe:
             self._cursor_sichtbar = not self._cursor_sichtbar
 
     def draw(self, surface):
-        pygame.draw.rect(surface, (12, 10, 16), self.rect, border_radius=6)
-        pygame.draw.rect(surface, theme.FARBEN["akzent"], self.rect, width=2, border_radius=6)
+        verlauf_rect(surface, self.rect, (18, 15, 24), (10, 8, 14), radius=8)
+        pygame.draw.rect(surface, theme.FARBEN["akzent"], self.rect, width=2, border_radius=8)
         anzeige = self.text if self.text else self.placeholder
         farbe = theme.FARBEN["text"] if self.text else theme.FARBEN["text_dim"]
         label = self.font.render(anzeige, True, farbe)
@@ -119,17 +204,25 @@ def zeilenumbruch(text: str, font: "pygame.font.Font", max_breite: int) -> list[
 
 def balken(surface, rect, anteil, farbe_voll, farbe_leer):
     rect = pygame.Rect(rect)
-    pygame.draw.rect(surface, farbe_leer, rect, border_radius=4)
+    radius = min(4, rect.height // 2)
+    pygame.draw.rect(surface, farbe_leer, rect, border_radius=radius)
     breite = int(rect.width * max(0.0, min(1.0, anteil)))
     if breite > 0:
-        pygame.draw.rect(surface, farbe_voll, (rect.x, rect.y, breite, rect.height), border_radius=4)
-    pygame.draw.rect(surface, (0, 0, 0), rect, width=1, border_radius=4)
+        hell = tuple(min(255, int(c * 1.35)) for c in farbe_voll)
+        verlauf_rect(surface, (rect.x, rect.y, breite, rect.height), hell, farbe_voll, radius=radius)
+    pygame.draw.rect(surface, (10, 8, 12), rect, width=1, border_radius=radius)
 
 
-def panel(surface, rect, farbe=None):
+def panel(surface, rect, farbe=None, ornament=False):
     rect = pygame.Rect(rect)
-    pygame.draw.rect(surface, farbe or theme.FARBEN["panel"], rect, border_radius=10)
-    pygame.draw.rect(surface, theme.FARBEN["panel_rand"], rect, width=2, border_radius=10)
+    schatten(surface, rect, radius=12, versatz=(0, 5))
+    if farbe:
+        verlauf_rect(surface, rect, farbe, farbe, radius=12)
+    else:
+        verlauf_rect(surface, rect, theme.FARBEN["panel_oben"], theme.FARBEN["panel_unten"], radius=12)
+    pygame.draw.rect(surface, theme.FARBEN["panel_rand"], rect, width=2, border_radius=12)
+    if ornament:
+        ecken_ornament(surface, rect, groesse=24)
 
 
 def text_block(surface, text, font, farbe, rect, zeilenabstand=6, scroll=0) -> int:

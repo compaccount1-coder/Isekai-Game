@@ -1,0 +1,14 @@
+Verwendete externe Ressourcen (alle kostenlos nutzbar, inkl. kommerziell):
+
+Schriftarten (SIL Open Font License 1.1):
+  - Cinzel (Natanael Gama) - assets/fonts/Cinzel.ttf
+  - Cinzel Decorative (Natanael Gama) - assets/fonts/CinzelDecorative-Bold.ttf
+  - EB Garamond (Georg Duffner u.a.) - assets/fonts/EBGaramond.ttf
+  Bezug: https://github.com/google/fonts (Ordner ofl/)
+  Lizenztexte liegen bei (OFL-Cinzel.txt, OFL-EBGaramond.txt).
+
+UI-Grafiken (Creative Commons Zero 1.0 - CC0, keine Nennung erforderlich):
+  - "Fantasy UI Borders" von Kenney (www.kenney.nl)
+    Daraus abgeleitet: assets/ui/corner_ornament.png, assets/ui/divider.png
+    (zugeschnitten, eingefärbt, hochskaliert)
+  Bezug: https://kenney.nl/assets/fantasy-ui-borders

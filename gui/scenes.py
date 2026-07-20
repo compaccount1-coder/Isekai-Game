@@ -18,6 +18,10 @@ from gui.widgets import Button
 
 
 class Szene:
+    # Ob ESC auf dieser Szene das Pause-Menü öffnet (siehe App.starten) -
+    # für den Titelbildschirm und das Pause-Menü selbst abgeschaltet.
+    pausierbar = True
+
     def __init__(self, app):
         self.app = app
 
@@ -33,11 +37,11 @@ class Szene:
 
 def _statusleiste(surface, charakter):
     rect = pygame.Rect(40, 40, theme.BREITE - 80, 150)
-    widgets.panel(surface, rect)
-    f_gross = theme.font(23, fett=True)
+    widgets.panel(surface, rect, ornament=True)
+    f_gross = theme.font_titel(22)
     f_klein = theme.font(16)
 
-    name_label = f_gross.render(f"{charakter.name} - {charakter.tier.name} (Lv. {charakter.level})", True, theme.FARBEN["text"])
+    name_label = f_gross.render(f"{charakter.name} - {charakter.tier.name} (Lv. {charakter.level})", True, theme.FARBEN["akzent_hell"])
     surface.blit(name_label, (rect.x + 20, rect.y + 12))
 
     info_label = f_klein.render(
@@ -66,6 +70,8 @@ def _statusleiste(surface, charakter):
 
 
 class TitleScene(Szene):
+    pausierbar = False
+
     def __init__(self, app):
         super().__init__(app)
         mitte_x = theme.BREITE // 2
@@ -88,10 +94,13 @@ class TitleScene(Szene):
 
     def draw(self, surface):
         surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
-        titel = theme.font(60, fett=True).render("ISEKAI CHRONICLES", True, theme.FARBEN["akzent"])
+        titel = theme.font_dekorativ(58).render("ISEKAI CHRONICLES", True, theme.FARBEN["akzent_hell"])
+        titel_schatten = theme.font_dekorativ(58).render("ISEKAI CHRONICLES", True, (0, 0, 0))
+        surface.blit(titel_schatten, (theme.BREITE // 2 - titel.get_width() // 2 + 3, 213))
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 210))
-        untertitel = theme.font(20).render("Eine Geschichte voller unendlicher Möglichkeiten", True, theme.FARBEN["text_dim"])
+        untertitel = theme.font_titel(19, fett=False).render("Eine Geschichte voller unendlicher Möglichkeiten", True, theme.FARBEN["text_dim"])
         surface.blit(untertitel, (theme.BREITE // 2 - untertitel.get_width() // 2, 300))
+        widgets.trennlinie(surface, theme.BREITE // 2, 345, breite=360)
         self.neues_spiel_button.draw(surface)
         self.fortsetzen_button.draw(surface)
         self.beenden_button.draw(surface)
@@ -145,7 +154,7 @@ class CharErstellungScene(Szene):
 
     def draw(self, surface):
         surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
-        titel = theme.font(28, fett=True).render("Wähle deinen Weg in dieser neuen Welt", True, theme.FARBEN["akzent"])
+        titel = theme.font_titel(28).render("Wähle deinen Weg in dieser neuen Welt", True, theme.FARBEN["akzent_hell"])
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 40))
         intro_zeilen = widgets.zeilenumbruch(self.intro, theme.font(15), theme.BREITE - 240)
         y = 90
@@ -161,7 +170,7 @@ class CharErstellungScene(Szene):
         for kid, btn in self.klassen_buttons:
             btn.draw(surface)
             if kid == self.klasse_id:
-                pygame.draw.rect(surface, theme.FARBEN["akzent"], btn.rect, width=3, border_radius=8)
+                pygame.draw.rect(surface, theme.FARBEN["akzent_hell"], btn.rect, width=3, border_radius=8)
 
         if self.klasse_id:
             archetyp = KLASSEN[self.klasse_id].archetyp
@@ -226,7 +235,7 @@ class HubScene(Szene):
             kopf_text = f"😴 {self.charakter.name} ist erschöpft - Zeit, in der Taverne zu schlafen."
         else:
             kopf_text = f"Wohin geht {self.charakter.name}? (Aktionen übrig: {self.charakter.aktionen_uebrig}/{MAX_AKTIONEN_PRO_TAG})"
-        kopf = theme.font(24).render(kopf_text, True, theme.FARBEN["text"])
+        kopf = theme.font_titel(23).render(kopf_text, True, theme.FARBEN["akzent_hell"])
         surface.blit(kopf, (theme.BREITE // 2 - kopf.get_width() // 2, 205))
         for button in self.buttons:
             button.draw(surface)
@@ -256,7 +265,11 @@ class OrtScene(Szene):
         hoehe_min = 54
         abstand = 12
         x = (theme.BREITE - breite) // 2
-        font = theme.font(19)
+        # Muss mit der Schriftart übereinstimmen, die Button.draw() tatsächlich
+        # zum Rendern verwendet (font_titel) - sonst weicht die hier
+        # vorausberechnete Zeilenzahl/Höhe von der echten Darstellung ab und
+        # Text würde wieder über den Button-Rand hinaus clippen.
+        font = theme.font_titel(19, fett=False)
         for label, _ in self.optionen:
             # Lange Beschreibungen (z.B. Quest-Einträge) brauchen mehr als
             # eine Zeile - die Button-Höhe richtet sich danach, damit der
@@ -293,10 +306,11 @@ class OrtScene(Szene):
     def draw(self, surface):
         surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
         _statusleiste(surface, self.charakter)
-        titel_zeilen = widgets.zeilenumbruch(self.titel, theme.font(25, fett=True), theme.BREITE - 160)
+        titel_font = theme.font_titel(25)
+        titel_zeilen = widgets.zeilenumbruch(self.titel, titel_font, theme.BREITE - 160)
         y = 200
         for zeile in titel_zeilen:
-            label = theme.font(25, fett=True).render(zeile, True, theme.FARBEN["akzent"])
+            label = titel_font.render(zeile, True, theme.FARBEN["akzent_hell"])
             surface.blit(label, (theme.BREITE // 2 - label.get_width() // 2, y))
             y += 30
         for button in self.buttons:
@@ -435,7 +449,7 @@ class KampfScene(Szene):
 
         gegner_lebend = self.kampf.gegner_lebend()
         namen = ", ".join(g.name for g in gegner_lebend) if gegner_lebend else ", ".join(g.name for g in self.kampf.gegnergruppe)
-        titel = theme.font(24, fett=True).render(f"⚔️ {namen}", True, theme.FARBEN["akzent"])
+        titel = theme.font_titel(24).render(f"⚔️ {namen}", True, theme.FARBEN["akzent_hell"])
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 205))
 
         y = 236
@@ -459,7 +473,7 @@ class KampfScene(Szene):
             widgets.balken(surface, balken_rect, begleiter.hp_aktuell / max(1, begleiter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
             by += 34
 
-        widgets.panel(surface, self._textrect)
+        widgets.panel(surface, self._textrect, ornament=True)
         innen = self._textrect.inflate(-30, -30)
         log_text = "\n".join(self.kampf.log)
         gesamthoehe = widgets.text_block(surface, log_text, theme.font(16), theme.FARBEN["text"], innen, scroll=self.scroll)
@@ -471,7 +485,7 @@ class KampfScene(Szene):
             warte_label = theme.font(18).render("...", True, theme.FARBEN["text_dim"])
             surface.blit(warte_label, (theme.BREITE // 2 - warte_label.get_width() // 2, theme.HOEHE - 130))
         elif self.gewaehlte_aktion is not None:
-            hinweis = theme.font(17).render(f"{self.gewaehlte_aktion} - Ziel wählen:", True, theme.FARBEN["akzent"])
+            hinweis = theme.font_titel(17).render(f"{self.gewaehlte_aktion} - Ziel wählen:", True, theme.FARBEN["akzent_hell"])
             surface.blit(hinweis, (theme.BREITE // 2 - hinweis.get_width() // 2, theme.HOEHE - 172))
             for _, button in self.ziel_buttons:
                 button.draw(surface)
@@ -503,13 +517,127 @@ class MeldungScene(Szene):
 
     def draw(self, surface):
         surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
-        titel_label = theme.font(30, fett=True).render(self.titel, True, theme.FARBEN["akzent"])
+        titel_label = theme.font_titel(30).render(self.titel, True, theme.FARBEN["akzent_hell"])
         surface.blit(titel_label, (80, 60))
-        widgets.panel(surface, self._textrect)
+        widgets.trennlinie(surface, 80 + titel_label.get_width() // 2, 60 + titel_label.get_height() + 12, breite=min(420, titel_label.get_width() + 60))
+        widgets.panel(surface, self._textrect, ornament=True)
         innen = self._textrect.inflate(-40, -40)
         gesamthoehe = widgets.text_block(surface, self.text, theme.font(19), theme.FARBEN["text"], innen, scroll=self.scroll)
         self.scroll = max(0, min(self.scroll, max(0, gesamthoehe - innen.height)))
         self.weiter_button.draw(surface)
+
+
+class PauseScene(Szene):
+    """Über ESC erreichbares Pause-Menü - legt sich als abgedunkelte
+    Überlagerung über die eingefrorene Spiel-Szene (die im Hintergrund
+    weiter sichtbar, aber nicht mehr interaktiv ist), mit Rückkehr ins
+    Spiel, Einstellungen (u.a. Vollbild) und Rückkehr zum Titelbildschirm."""
+
+    pausierbar = False
+
+    def __init__(self, app, spiel_szene):
+        super().__init__(app)
+        self.spiel_szene = spiel_szene
+        self.bestaetige_titel_rueckkehr = False
+        mitte_x = theme.BREITE // 2
+        self.fortsetzen_button = Button((mitte_x - 160, 340, 320, 58), "Fortsetzen", groesse=23)
+        self.einstellungen_button = Button((mitte_x - 160, 412, 320, 58), "Einstellungen", groesse=23)
+        self.titel_button = Button((mitte_x - 160, 484, 320, 58), "Zum Titelbildschirm", groesse=23)
+        self.bestaetigen_button = Button((mitte_x - 210, 480, 200, 52), "Ja, verlassen", groesse=19)
+        self.abbrechen_button = Button((mitte_x + 10, 480, 200, 52), "Abbrechen", groesse=19)
+
+    def handle_event(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            if self.bestaetige_titel_rueckkehr:
+                self.bestaetige_titel_rueckkehr = False
+            else:
+                self.app.wechsle_szene(self.spiel_szene)
+            return
+        if self.bestaetige_titel_rueckkehr:
+            if self.bestaetigen_button.handle_event(event):
+                self.app.wechsle_szene(TitleScene(self.app))
+            elif self.abbrechen_button.handle_event(event):
+                self.bestaetige_titel_rueckkehr = False
+            return
+        if self.fortsetzen_button.handle_event(event):
+            self.app.wechsle_szene(self.spiel_szene)
+        elif self.einstellungen_button.handle_event(event):
+            self.app.wechsle_szene(EinstellungenScene(self.app, self.spiel_szene))
+        elif self.titel_button.handle_event(event):
+            self.bestaetige_titel_rueckkehr = True
+
+    def draw(self, surface):
+        self.spiel_szene.draw(surface)
+        schleier = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        schleier.fill((8, 6, 12, 190))
+        surface.blit(schleier, (0, 0))
+
+        panel_rect = pygame.Rect(theme.BREITE // 2 - 260, 220, 520, 340)
+        widgets.panel(surface, panel_rect, ornament=True)
+        titel = theme.font_dekorativ(34).render("Pause", True, theme.FARBEN["akzent_hell"])
+        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 250))
+        widgets.trennlinie(surface, theme.BREITE // 2, 305, breite=260)
+
+        if self.bestaetige_titel_rueckkehr:
+            frage = widgets.zeilenumbruch(
+                "Wirklich zum Titelbildschirm? Fortschritt seit dem letzten Ort-Besuch geht verloren.",
+                theme.font(17), 440,
+            )
+            y = 380
+            for zeile in frage:
+                label = theme.font(17).render(zeile, True, theme.FARBEN["text"])
+                surface.blit(label, (theme.BREITE // 2 - label.get_width() // 2, y))
+                y += 24
+            self.bestaetigen_button.draw(surface)
+            self.abbrechen_button.draw(surface)
+        else:
+            self.fortsetzen_button.draw(surface)
+            self.einstellungen_button.draw(surface)
+            self.titel_button.draw(surface)
+
+
+class EinstellungenScene(Szene):
+    """Einfache Einstellungen, erreichbar über das Pause-Menü: aktuell nur
+    der Vollbild-Umschalter, als eigener Bildschirm angelegt, damit sich
+    das später zwanglos um Lautstärke/Textgeschwindigkeit o.ä. erweitern
+    lässt, ohne das Pause-Menü selbst zu überladen."""
+
+    pausierbar = False
+
+    def __init__(self, app, spiel_szene):
+        super().__init__(app)
+        self.spiel_szene = spiel_szene
+        mitte_x = theme.BREITE // 2
+        self.vollbild_button = Button((mitte_x - 200, 340, 400, 58), "", groesse=21)
+        self.zurueck_button = Button((mitte_x - 160, 420, 320, 54), "◀ Zurück", groesse=21)
+
+    def handle_event(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.app.wechsle_szene(PauseScene(self.app, self.spiel_szene))
+            return
+        if self.vollbild_button.handle_event(event):
+            self.app.vollbild_umschalten()
+        elif self.zurueck_button.handle_event(event):
+            self.app.wechsle_szene(PauseScene(self.app, self.spiel_szene))
+
+    def draw(self, surface):
+        self.spiel_szene.draw(surface)
+        schleier = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        schleier.fill((8, 6, 12, 190))
+        surface.blit(schleier, (0, 0))
+
+        panel_rect = pygame.Rect(theme.BREITE // 2 - 280, 220, 560, 300)
+        widgets.panel(surface, panel_rect, ornament=True)
+        titel = theme.font_dekorativ(30).render("Einstellungen", True, theme.FARBEN["akzent_hell"])
+        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 255))
+        widgets.trennlinie(surface, theme.BREITE // 2, 302, breite=280)
+
+        zustand = "An ✅" if self.app.vollbild else "Aus"
+        self.vollbild_button.text = f"Vollbildschirm: {zustand}"
+        self.vollbild_button.subtitle = "F11 wirkt als Kurzbefehl jederzeit ebenso"
+        self.vollbild_button.subtitle_font = theme.font(13)
+        self.vollbild_button.draw(surface)
+        self.zurueck_button.draw(surface)
 
 
 def _starte_ereignis_anzeige(app, charakter, welt, ort_titel, ereignis, ort_id=None):

@@ -23,7 +23,7 @@ class App:
         self.laeuft = True
         self.szene = None
 
-    def _vollbild_umschalten(self):
+    def vollbild_umschalten(self):
         self.vollbild = not self.vollbild
         if self.vollbild:
             self.fenster = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -54,8 +54,16 @@ class App:
                     self.laeuft = False
                     break
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
-                    self._vollbild_umschalten()
+                    self.vollbild_umschalten()
                     continue
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    # Pause-Menü: nur Szenen, die sich selbst als pausierbar
+                    # markieren (siehe Szene.pausierbar), lösen es aus - das
+                    # Pause-Menü selbst regelt ESC (zurück/weiter) eigenständig.
+                    if getattr(self.szene, "pausierbar", False):
+                        from gui.scenes import PauseScene
+                        self.szene = PauseScene(self, self.szene)
+                        continue
                 if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
                     event = pygame.event.Event(event.type, {**event.dict, "pos": self._physisch_zu_logisch(event.pos)})
                 self.szene.handle_event(event)
