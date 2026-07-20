@@ -73,6 +73,7 @@ class Charakter:
     daemonenkoenig_besiegt: bool = False
     spezialisierung: str | None = None  # None (unentschieden), "Standard" oder "Alternative" (siehe AUFSTIEGSPFADE)
     story_gesehen: list[str] = field(default_factory=list)  # Schlüssel bereits gezeigter Story-Meilensteine
+    spielstand_slot: str = ""  # eindeutiger Speicherstand-Slot (siehe game.savegame) - je Charakter/Durchlauf eigener
 
     # Nahkämpfer-Klassen, deren Aufstiegsklasse speziell auf Verteidigung der
     # Gruppe ausgelegt ist - nur bei diesen gibt die Wahl "Alternative" die
@@ -308,6 +309,26 @@ class Charakter:
         if aktuelles is None:
             return True
         return item.stat_gesamt() > aktuelles.stat_gesamt()
+
+    def ausgeruestetes_item(self, typ: str) -> Item | None:
+        return getattr(self, self._slot_fuer_typ(typ))
+
+    def ausruestungs_vergleich(self, item: Item) -> str:
+        """Lesbarer Vergleich zwischen einem Inventar-Gegenstand und dem
+        aktuell in seinem Slot getragenen Gegenstand - damit im Inventar auf
+        einen Blick klar ist, was sich ein Wechsel überhaupt bringt, statt
+        nur eine pauschale "besser/schlechter"-Markierung zu sehen."""
+        aktuelles = self.ausgeruestetes_item(item.typ)
+        if aktuelles is None:
+            return "aktuell nichts in diesem Slot ausgerüstet"
+        if aktuelles is item:
+            return "bereits ausgerüstet"
+        delta = item.stat_gesamt() - aktuelles.stat_gesamt()
+        if delta > 0:
+            return f"+{delta} stärker als aktuell ausgerüstet ({aktuelles.name})"
+        elif delta < 0:
+            return f"{delta} schwächer als aktuell ausgerüstet ({aktuelles.name})"
+        return f"gleich stark wie aktuell ausgerüstet ({aktuelles.name})"
 
     def fund_verarbeiten(self, item: Item) -> str:
         """Legt einen Fund ins Inventar - der Spieler entscheidet selbst, am

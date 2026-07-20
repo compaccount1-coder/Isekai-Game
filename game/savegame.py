@@ -6,6 +6,8 @@ in die richtigen Dataclass-Typen zurückgebaut."""
 
 import json
 import os
+import re
+import time
 from dataclasses import asdict
 
 from game.character import Charakter, GelernterSkill
@@ -14,6 +16,9 @@ from game.items import Item, Trank
 from game.world import Koenigreich, Stadt, Welt
 
 SPEICHER_ORDNER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saves")
+
+# Liegt im selben Ordner, ist aber kein Spielstand - aus Auflistungen ausschließen.
+_KEIN_SPIELSTAND = {"einstellungen.json"}
 
 
 def _item_aus_dict(d: dict | None) -> Item | None:
@@ -79,4 +84,31 @@ def spielstand_loeschen(slot: str = "spielstand") -> None:
 def alle_spielstaende() -> list[str]:
     if not os.path.isdir(SPEICHER_ORDNER):
         return []
-    return sorted(f[:-5] for f in os.listdir(SPEICHER_ORDNER) if f.endswith(".json"))
+    return sorted(
+        f[:-5] for f in os.listdir(SPEICHER_ORDNER)
+        if f.endswith(".json") and f not in _KEIN_SPIELSTAND
+    )
+
+
+def spielstand_infos() -> list[tuple[str, Charakter]]:
+    """Lädt zu jedem vorhandenen Spielstand den Charakter (liefert u.a. Name,
+    Level, Klasse, Rang für eine Auswahlliste) - für eine überschaubare Zahl
+    an Slots ist das einfache Vollladen unproblematisch. Beschädigte oder
+    unlesbare Speicherstände werden übersprungen statt die ganze Liste
+    abzubrechen."""
+    ergebnisse = []
+    for slot in alle_spielstaende():
+        try:
+            charakter, _ = laden(slot)
+            ergebnisse.append((slot, charakter))
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            continue
+    return ergebnisse
+
+
+def neuer_slot(name: str) -> str:
+    """Erzeugt einen neuen, eindeutigen Speicherstand-Slot für einen frisch
+    erstellten Charakter - Name (für Wiedererkennung im Dateisystem) plus
+    Zeitstempel (zur Eindeutigkeit, falls derselbe Name mehrfach vorkommt)."""
+    sicher = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip()).strip("_") or "abenteurer"
+    return f"{sicher}_{int(time.time())}"

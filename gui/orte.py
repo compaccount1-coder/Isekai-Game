@@ -117,6 +117,22 @@ def _markt_traenke_submenu(charakter) -> Submenu:
     return Submenu(f"🧪 Der Alchemiestand bietet an ({charakter.gold}g verfügbar)", opts)
 
 
+AUSRUESTUNGS_SLOTS = (("Waffe", "🗡️", "Waffe"), ("Ruestung", "🛡️", "Rüstung"), ("Accessoire", "💍", "Accessoire"))
+
+
+def _ausruestungs_uebersicht_optionen(charakter) -> list[tuple[str, Aktion]]:
+    """Zeigt die drei Ausrüstungs-Slots als eigene (informative) Einträge an
+    der Spitze des Inventars, damit auf einen Blick klar ist, was gerade
+    getragen wird - vorher war das nur indirekt über den ⭐-Hinweis an
+    einzelnen Items erkennbar."""
+    opts = []
+    for typ, symbol, label in AUSRUESTUNGS_SLOTS:
+        item = charakter.ausgeruestetes_item(typ)
+        text = f"{symbol} {label} (ausgerüstet): {item.anzeige()}" if item else f"{symbol} {label}: nichts ausgerüstet"
+        opts.append((text, lambda: Ereignis(text="Das ist deine aktuelle Ausrüstung - wähle einen Gegenstand weiter unten, um sie zu wechseln.", kostet_aktion=False)))
+    return opts
+
+
 def _inventar_optionen(charakter) -> list[tuple[str, Aktion]]:
     def item_submenu(item):
         def oeffnen():
@@ -124,33 +140,22 @@ def _inventar_optionen(charakter) -> list[tuple[str, Aktion]]:
                 ("Ausrüsten", lambda: Ereignis(text=charakter.ausruesten(item), kostet_aktion=False)),
                 (f"Verkaufen für {item.wert}g", lambda: Ereignis(text=f"💰 {charakter.name} verkauft {item.name} für {charakter.verkaufen(item)}g.", kostet_aktion=False)),
             ]
-            return Submenu(item.anzeige(), opts)
+            return Submenu(f"{item.anzeige()}\n{charakter.ausruestungs_vergleich(item)}", opts)
         return oeffnen
 
-    opts = []
+    opts = list(_ausruestungs_uebersicht_optionen(charakter))
+    if not charakter.inventar:
+        return opts
     for item in charakter.inventar:
         hinweis = " ⭐" if charakter.item_ist_besser(item) else ""
-        opts.append((f"{item.anzeige()}{hinweis}", item_submenu(item)))
+        opts.append((f"{item.anzeige()}{hinweis} - {charakter.ausruestungs_vergleich(item)}", item_submenu(item)))
     opts.append((f"Alles verkaufen ({sum(i.wert for i in charakter.inventar)}g)", lambda: _markt_verkaufen(charakter)))
     return opts
-
-
-def inventar_submenu(charakter) -> Submenu:
-    """Ausrüstung ansehen/wechseln/verkaufen - kostet keine der täglichen
-    Aktionen, egal von wo aus sie aufgerufen wird."""
-    if not charakter.inventar:
-        return Submenu("🎒 Inventar ist leer", [("Zurück", lambda: Ereignis(text=f"{charakter.name}s Inventar ist leer - nichts zu verwalten.", kostet_aktion=False))])
-    return Submenu(
-        f"🎒 Inventar von {charakter.name} ({len(charakter.inventar)} Gegenstände, ⭐ = besser als aktuelle Ausrüstung)",
-        _inventar_optionen(charakter),
-    )
 
 
 def optionen_inventar(charakter) -> list[tuple[str, Aktion]]:
     """Für den eigenständigen, immer erreichbaren Inventar-Ort (kein
     Untermenü, sondern die oberste Ebene selbst)."""
-    if not charakter.inventar:
-        return [("Inventar ist leer", lambda: Ereignis(text=f"{charakter.name}s Inventar ist leer - nichts zu verwalten.", kostet_aktion=False))]
     return _inventar_optionen(charakter)
 
 

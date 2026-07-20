@@ -274,22 +274,37 @@ def _markt_verkaufen(charakter: Charakter) -> Ereignis:
     return Ereignis(text=f"💰 {charakter.name} verkauft {anzahl} Gegenstände aus dem Inventar für insgesamt {erloes}g.", kostet_aktion=False)
 
 
+_AUSRUESTUNGS_SLOTS = (("Waffe", "🗡️", "Waffe"), ("Ruestung", "🛡️", "Rüstung"), ("Accessoire", "💍", "Accessoire"))
+
+
+def _ausruestungs_uebersicht(charakter: Charakter) -> str:
+    zeilen = []
+    for typ, symbol, label in _AUSRUESTUNGS_SLOTS:
+        item = charakter.ausgeruestetes_item(typ)
+        zeilen.append(f"{symbol} {label}: {item.anzeige() if item else 'nichts ausgerüstet'}")
+    return "\n".join(zeilen)
+
+
 def inventar_verwalten(charakter: Charakter) -> Ereignis:
     """Der Spieler entscheidet selbst, was ausgerüstet oder verkauft wird -
     keine automatische Verwaltung mehr. Das bloße Sichten/Verwalten der
     eigenen Ausrüstung kostet keine der täglichen Aktionen."""
     if not charakter.inventar:
-        return Ereignis(text=f"🎒 {charakter.name}s Inventar ist leer - nichts zu verwalten.", kostet_aktion=False)
+        return Ereignis(
+            text=f"🎒 {charakter.name}s Inventar ist leer - nichts zu verwalten.\n\nAktuelle Ausrüstung:\n{_ausruestungs_uebersicht(charakter)}",
+            kostet_aktion=False,
+        )
 
     texte = []
     for item in charakter.inventar:
         hinweis = " ⭐" if charakter.item_ist_besser(item) else ""
-        texte.append(f"{item.anzeige()}{hinweis}")
+        texte.append(f"{item.anzeige()}{hinweis} - {charakter.ausruestungs_vergleich(item)}")
     texte.append(f"Alles verkaufen ({sum(i.wert for i in charakter.inventar)}g)")
     texte.append("Zurück")
 
     idx = menu_waehlen(
-        f"🎒 Inventar von {charakter.name} ({len(charakter.inventar)} Gegenstände, ⭐ = besser als aktuelle Ausrüstung)",
+        f"🎒 Inventar von {charakter.name} ({len(charakter.inventar)} Gegenstände, ⭐ = besser als aktuelle Ausrüstung)\n\n"
+        f"Aktuelle Ausrüstung:\n{_ausruestungs_uebersicht(charakter)}",
         texte,
     )
     anzahl_items = len(charakter.inventar)
@@ -300,7 +315,7 @@ def inventar_verwalten(charakter: Charakter) -> Ereignis:
 
     item = charakter.inventar[idx]
     unteroptionen = ["Ausrüsten", f"Verkaufen für {item.wert}g", "Zurück"]
-    unteridx = menu_waehlen(item.anzeige(), unteroptionen)
+    unteridx = menu_waehlen(f"{item.anzeige()}\n{charakter.ausruestungs_vergleich(item)}", unteroptionen)
     if unteridx == 0:
         return Ereignis(text=charakter.ausruesten(item), kostet_aktion=False)
     elif unteridx == 1:

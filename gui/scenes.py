@@ -77,7 +77,7 @@ class TitleScene(Szene):
         musik.spiele("erkundung")
         mitte_x = theme.BREITE // 2
         self.neues_spiel_button = Button((mitte_x - 160, 430, 320, 60), "Neues Spiel", groesse=26)
-        fortsetzen_moeglich = savegame.spielstand_vorhanden()
+        fortsetzen_moeglich = bool(savegame.alle_spielstaende())
         self.fortsetzen_button = Button((mitte_x - 160, 508, 320, 60), "Fortsetzen", groesse=26, enabled=fortsetzen_moeglich)
         self.beenden_button = Button((mitte_x - 160, 586, 320, 60), "Beenden", groesse=26)
 
@@ -85,11 +85,7 @@ class TitleScene(Szene):
         if self.neues_spiel_button.handle_event(event):
             self.app.wechsle_szene(CharErstellungScene(self.app))
         elif self.fortsetzen_button.handle_event(event):
-            try:
-                charakter, welt = savegame.laden()
-                self.app.wechsle_szene(HubScene(self.app, charakter, welt))
-            except (OSError, ValueError, KeyError):
-                self.fortsetzen_button.enabled = False
+            self.app.wechsle_szene(SpielstandAuswahlScene(self.app))
         elif self.beenden_button.handle_event(event):
             self.app.laeuft = False
 
@@ -107,6 +103,64 @@ class TitleScene(Szene):
         self.beenden_button.draw(surface)
         hinweis = theme.font(14).render("F11 = Vollbild an/aus", True, theme.FARBEN["text_dim"])
         surface.blit(hinweis, (theme.BREITE - hinweis.get_width() - 20, theme.HOEHE - 32))
+
+
+class SpielstandAuswahlScene(Szene):
+    """Listet alle vorhandenen Speicherstände (Name, Level, Klasse, Rang,
+    Tag) zur Auswahl auf - erreichbar über "Fortsetzen" im Titelbildschirm.
+    Ersetzt das frühere blinde Laden eines einzigen fixen Slots, jetzt, wo
+    jeder neue Charakter seinen eigenen Slot bekommt (siehe
+    game.savegame.neuer_slot)."""
+
+    pausierbar = False
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.eintraege = savegame.spielstand_infos()
+        self.buttons: list[Button] = []
+        self._baue_buttons()
+        self.zurueck_button = Button((40, theme.HOEHE - 76, 160, 46), "◀ Zurück", groesse=19)
+
+    def _baue_buttons(self):
+        self.buttons = []
+        start_y = 240
+        breite, abstand = 820, 14
+        anzahl = max(1, len(self.eintraege))
+        verfuegbar = theme.HOEHE - start_y - 100
+        hoehe = min(74, max(48, (verfuegbar - (anzahl - 1) * abstand) // anzahl))
+        x = (theme.BREITE - breite) // 2
+        for i, (slot, charakter) in enumerate(self.eintraege):
+            rect = (x, start_y + i * (hoehe + abstand), breite, hoehe)
+            text = f"{charakter.name} - Lv. {charakter.level} {charakter.tier.name}"
+            unterzeile = f"Rang {charakter.rang}  |  Tag {charakter.tage_vergangen}  |  {charakter.gold}g"
+            self.buttons.append(Button(rect, text, groesse=21, subtitle=unterzeile, subtitle_groesse=15))
+
+    def handle_event(self, event):
+        for i, button in enumerate(self.buttons):
+            if button.handle_event(event):
+                slot, _ = self.eintraege[i]
+                try:
+                    charakter, welt = savegame.laden(slot)
+                    self.app.wechsle_szene(HubScene(self.app, charakter, welt))
+                except (OSError, ValueError, KeyError):
+                    self.eintraege = savegame.spielstand_infos()
+                    self._baue_buttons()
+                return
+        if self.zurueck_button.handle_event(event):
+            self.app.wechsle_szene(TitleScene(self.app))
+
+    def draw(self, surface):
+        surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
+        titel = theme.font_titel(28).render("Welches Abenteuer soll weitergehen?", True, theme.FARBEN["akzent_hell"])
+        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 190))
+        widgets.trennlinie(surface, theme.BREITE // 2, 232, breite=320)
+
+        if not self.eintraege:
+            hinweis = theme.font(18).render("Keine Speicherstände vorhanden.", True, theme.FARBEN["text_dim"])
+            surface.blit(hinweis, (theme.BREITE // 2 - hinweis.get_width() // 2, 280))
+        for button in self.buttons:
+            button.draw(surface)
+        self.zurueck_button.draw(surface)
 
 
 class CharErstellungScene(Szene):
@@ -147,7 +201,8 @@ class CharErstellungScene(Szene):
     def _starten(self):
         name = self.name_eingabe.text.strip() or "Namenloser Wanderer"
         persoenlichkeit = random.sample(PERSOENLICHKEITEN, k=2)
-        charakter = Charakter(name=name, klasse_id=self.klasse_id, persoenlichkeit=persoenlichkeit)
+        slot = savegame.neuer_slot(name)
+        charakter = Charakter(name=name, klasse_id=self.klasse_id, persoenlichkeit=persoenlichkeit, spielstand_slot=slot)
         welt = generiere_welt(anzahl_koenigreiche=random.randint(4, 6))
         self.app.wechsle_szene(HubScene(self.app, charakter, welt))
 
@@ -196,7 +251,7 @@ class HubScene(Szene):
         self.buttons: list[Button] = []
         self._baue_buttons()
         try:
-            savegame.speichern(charakter, welt)
+            savegame.speichern(charakter, welt, slot=charakter.spielstand_slot or "spielstand")
         except OSError:
             pass
 
@@ -558,12 +613,24 @@ class PauseScene(Szene):
         super().__init__(app)
         self.spiel_szene = spiel_szene
         self.bestaetige_titel_rueckkehr = False
+        self._meldung = ""
+        self._meldung_timer = 0.0
         mitte_x = theme.BREITE // 2
-        self.fortsetzen_button = Button((mitte_x - 160, 340, 320, 58), "Fortsetzen", groesse=23)
-        self.einstellungen_button = Button((mitte_x - 160, 412, 320, 58), "Einstellungen", groesse=23)
-        self.titel_button = Button((mitte_x - 160, 484, 320, 58), "Zum Titelbildschirm", groesse=23)
-        self.bestaetigen_button = Button((mitte_x - 210, 480, 200, 52), "Ja, verlassen", groesse=19)
-        self.abbrechen_button = Button((mitte_x + 10, 480, 200, 52), "Abbrechen", groesse=19)
+        self.fortsetzen_button = Button((mitte_x - 160, 310, 320, 58), "Fortsetzen", groesse=23)
+        self.speichern_button = Button((mitte_x - 160, 382, 320, 58), "Speichern", groesse=23)
+        self.einstellungen_button = Button((mitte_x - 160, 454, 320, 58), "Einstellungen", groesse=23)
+        self.titel_button = Button((mitte_x - 160, 526, 320, 58), "Zum Titelbildschirm", groesse=23)
+        self.bestaetigen_button = Button((mitte_x - 210, 470, 200, 52), "Ja, verlassen", groesse=19)
+        self.abbrechen_button = Button((mitte_x + 10, 470, 200, 52), "Abbrechen", groesse=19)
+
+    def _charakter_und_welt(self):
+        return getattr(self.spiel_szene, "charakter", None), getattr(self.spiel_szene, "welt", None)
+
+    def update(self, dt):
+        if self._meldung_timer > 0:
+            self._meldung_timer -= dt
+            if self._meldung_timer <= 0:
+                self._meldung = ""
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -580,6 +647,15 @@ class PauseScene(Szene):
             return
         if self.fortsetzen_button.handle_event(event):
             self.app.wechsle_szene(self.spiel_szene)
+        elif self.speichern_button.handle_event(event):
+            charakter, welt = self._charakter_und_welt()
+            if charakter is not None and welt is not None:
+                try:
+                    savegame.speichern(charakter, welt, slot=charakter.spielstand_slot or "spielstand")
+                    self._meldung = "💾 Gespeichert!"
+                except OSError:
+                    self._meldung = "Speichern fehlgeschlagen."
+                self._meldung_timer = 2.0
         elif self.einstellungen_button.handle_event(event):
             self.app.wechsle_szene(EinstellungenScene(self.app, self.spiel_szene))
         elif self.titel_button.handle_event(event):
@@ -591,18 +667,18 @@ class PauseScene(Szene):
         schleier.fill((8, 6, 12, 190))
         surface.blit(schleier, (0, 0))
 
-        panel_rect = pygame.Rect(theme.BREITE // 2 - 260, 220, 520, 340)
+        panel_rect = pygame.Rect(theme.BREITE // 2 - 260, 195, 520, 410)
         widgets.panel(surface, panel_rect, ornament=True)
         titel = theme.font_dekorativ(34).render("Pause", True, theme.FARBEN["akzent_hell"])
-        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 250))
-        widgets.trennlinie(surface, theme.BREITE // 2, 305, breite=260)
+        surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 222))
+        widgets.trennlinie(surface, theme.BREITE // 2, 277, breite=260)
 
         if self.bestaetige_titel_rueckkehr:
             frage = widgets.zeilenumbruch(
                 "Wirklich zum Titelbildschirm? Fortschritt seit dem letzten Ort-Besuch geht verloren.",
                 theme.font(17), 440,
             )
-            y = 380
+            y = 340
             for zeile in frage:
                 label = theme.font(17).render(zeile, True, theme.FARBEN["text"])
                 surface.blit(label, (theme.BREITE // 2 - label.get_width() // 2, y))
@@ -610,9 +686,15 @@ class PauseScene(Szene):
             self.bestaetigen_button.draw(surface)
             self.abbrechen_button.draw(surface)
         else:
+            charakter, welt = self._charakter_und_welt()
+            self.speichern_button.enabled = charakter is not None and welt is not None
             self.fortsetzen_button.draw(surface)
+            self.speichern_button.draw(surface)
             self.einstellungen_button.draw(surface)
             self.titel_button.draw(surface)
+            if self._meldung:
+                meldung_label = theme.font(16).render(self._meldung, True, theme.FARBEN["erfolg"])
+                surface.blit(meldung_label, (theme.BREITE // 2 - meldung_label.get_width() // 2, panel_rect.bottom - 30))
 
 
 _ANZEIGEMODI = [("fenster", "Fenster"), ("vollbild", "Vollbildschirm"), ("randlos", "Vollbild (randlos)")]

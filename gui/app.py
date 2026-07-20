@@ -2,7 +2,15 @@
 
 import pygame
 
+from game import savegame
 from gui import einstellungen, musik, theme
+
+# Zusätzlich zum ereignisgesteuerten Autosave (bei jedem Hub-Besuch, siehe
+# HubScene) sichert diese Zeitspanne auch lange, ununterbrochene Abschnitte
+# außerhalb des Hubs ab (z.B. einen langen Dungeon-Lauf) - lang genug, um
+# nicht bei jeder Combat-Runde unnötig auf die Platte zu schreiben, kurz
+# genug, dass im Ernstfall nie viel Fortschritt verloren geht.
+AUTOSAVE_INTERVALL_SEKUNDEN = 180.0
 
 
 class App:
@@ -29,6 +37,7 @@ class App:
         self.clock = pygame.time.Clock()
         self.laeuft = True
         self.szene = None
+        self._autosave_timer = 0.0
 
     # -- Anzeige-Einstellungen -------------------------------------------
 
@@ -115,10 +124,25 @@ class App:
             if not self.laeuft:
                 break
             self.szene.update(dt)
+            self._autosave_pruefen(dt)
             self.logische_flaeche.fill(theme.FARBEN["hintergrund"])
             self.szene.draw(self.logische_flaeche)
             self._praesentieren()
         pygame.quit()
+
+    def _autosave_pruefen(self, dt):
+        self._autosave_timer += dt
+        if self._autosave_timer < AUTOSAVE_INTERVALL_SEKUNDEN:
+            return
+        self._autosave_timer = 0.0
+        charakter = getattr(self.szene, "charakter", None)
+        welt = getattr(self.szene, "welt", None)
+        if charakter is None or welt is None:
+            return
+        try:
+            savegame.speichern(charakter, welt, slot=charakter.spielstand_slot or "spielstand")
+        except OSError:
+            pass
 
     def _praesentieren(self):
         skala, offset_x, offset_y, ziel_breite, ziel_hoehe = self._skalierung()
