@@ -87,10 +87,13 @@ def _fortschritts_pool(charakter) -> list[str]:
 
 
 def gildenmeister_gespraech(charakter) -> Ereignis:
+    """Reines Gespräch ohne mechanischen Wert - anders als ein Sonderauftrag
+    oder eine Entscheidung ist das bloße Reden mit dem Gildenmeister keine
+    Aktivität, die XP, Ruf oder eine der täglichen Aktionen kosten sollte."""
     name = gildenmeister_name(charakter)
     zitat = random.choice(_fortschritts_pool(charakter))
     text = f"🗣️ {name}, der Gildenmeister, winkt {charakter.name} zu sich. {zitat}"
-    return Ereignis(text=text, xp=int(12 * charakter.level), ruf=1, ist_wichtig=True)
+    return Ereignis(text=text, ist_wichtig=True, kostet_aktion=False)
 
 
 # ---------------------------------------------------------------------------
