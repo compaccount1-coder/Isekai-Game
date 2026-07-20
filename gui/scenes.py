@@ -52,11 +52,11 @@ def _statusleiste(surface, charakter):
 
     hp_label = f_klein.render(f"HP {charakter.hp_aktuell}/{charakter.hp_max}", True, theme.FARBEN["text"])
     surface.blit(hp_label, (rect.x + 20, rect.y + 80))
-    widgets.balken(surface, (rect.x + 130, rect.y + 82, 280, 18), charakter.hp_aktuell / max(1, charakter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+    widgets.animierter_balken(surface, (rect.x + 130, rect.y + 82, 280, 18), (id(charakter), "hp"), charakter.hp_aktuell / max(1, charakter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
 
     mp_label = f_klein.render(f"MP {charakter.mp_aktuell}/{charakter.mp_max}", True, theme.FARBEN["text"])
     surface.blit(mp_label, (rect.x + 440, rect.y + 80))
-    widgets.balken(surface, (rect.x + 540, rect.y + 82, 280, 18), charakter.mp_aktuell / max(1, charakter.mp_max), theme.FARBEN["mp_voll"], theme.FARBEN["mp_leer"])
+    widgets.animierter_balken(surface, (rect.x + 540, rect.y + 82, 280, 18), (id(charakter), "mp"), charakter.mp_aktuell / max(1, charakter.mp_max), theme.FARBEN["mp_voll"], theme.FARBEN["mp_leer"])
 
     if charakter.begleiter:
         beg_text = " | ".join(
@@ -90,7 +90,7 @@ class TitleScene(Szene):
             self.app.laeuft = False
 
     def draw(self, surface):
-        surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
+        hintergruende.zeichnen(surface, "titel")
         titel = theme.font_dekorativ(58).render("ISEKAI CHRONICLES", True, theme.FARBEN["akzent_hell"])
         titel_schatten = theme.font_dekorativ(58).render("ISEKAI CHRONICLES", True, (0, 0, 0))
         surface.blit(titel_schatten, (theme.BREITE // 2 - titel.get_width() // 2 + 3, 213))
@@ -150,7 +150,7 @@ class SpielstandAuswahlScene(Szene):
             self.app.wechsle_szene(TitleScene(self.app))
 
     def draw(self, surface):
-        surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
+        hintergruende.zeichnen(surface, "titel")
         titel = theme.font_titel(28).render("Welches Abenteuer soll weitergehen?", True, theme.FARBEN["akzent_hell"])
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 190))
         widgets.trennlinie(surface, theme.BREITE // 2, 232, breite=320)
@@ -210,7 +210,7 @@ class CharErstellungScene(Szene):
         self.name_eingabe.update(dt)
 
     def draw(self, surface):
-        surface.blit(hintergruende.hintergrund_fuer("titel"), (0, 0))
+        hintergruende.zeichnen(surface, "titel")
         titel = theme.font_titel(28).render("Wähle deinen Weg in dieser neuen Welt", True, theme.FARBEN["akzent_hell"])
         surface.blit(titel, (theme.BREITE // 2 - titel.get_width() // 2, 40))
         intro_zeilen = widgets.zeilenumbruch(self.intro, theme.font(15), theme.BREITE - 240)
@@ -287,7 +287,7 @@ class HubScene(Szene):
                 return
 
     def draw(self, surface):
-        surface.blit(hintergruende.hintergrund_fuer("hub"), (0, 0))
+        hintergruende.zeichnen(surface, "hub")
         _statusleiste(surface, self.charakter)
         if self.charakter.aktionen_uebrig <= 0:
             kopf_text = f"😴 {self.charakter.name} ist erschöpft - Zeit, in der Taverne zu schlafen."
@@ -370,7 +370,7 @@ class OrtScene(Szene):
             _starte_ereignis_anzeige(self.app, self.charakter, self.welt, self.titel, ergebnis, self.ort_id)
 
     def draw(self, surface):
-        surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
+        hintergruende.zeichnen(surface, self.ort_id)
         _statusleiste(surface, self.charakter)
         titel_font = theme.font_titel(25)
         y = 200
@@ -413,7 +413,39 @@ class KampfScene(Szene):
         self.gewaehlte_aktion: str | None = None
         self.aktions_buttons: list[tuple[str, Button]] = []
         self.ziel_buttons: list[tuple[object, Button]] = []
+        self.schwebetexte: list[widgets.SchwebeText] = []
         self._baue_aktionsbuttons()
+
+    def update(self, dt):
+        self.schwebetexte = [t for t in self.schwebetexte if t.update(dt)]
+
+    def _position_fuer(self, ziel) -> tuple[int, int]:
+        """Ungefähre Bildschirmposition eines Kampfteilnehmers - muss mit den
+        Positionen in draw() übereinstimmen, an denen dessen HP-Balken
+        gezeichnet wird, damit Schadens-/Heilzahlen dort auftauchen, wo sie
+        inhaltlich hingehören."""
+        if ziel is self.charakter:
+            return (40 + 130 + 140, 40 + 82 + 9)
+        for i, b in enumerate(self.charakter.begleiter):
+            if b is ziel:
+                return (80 + 130, 236 + i * 34 + 6)
+        for i, g in enumerate(self.kampf.gegner_lebend() or self.kampf.gegnergruppe):
+            if g is ziel:
+                return (theme.BREITE // 2, 236 + i * 34 + 6)
+        return (theme.BREITE // 2, 236)
+
+    def _schwebetexte_erzeugen(self):
+        for ziel, betrag in self.kampf.letzte_zahlen:
+            x, y = self._position_fuer(ziel)
+            if betrag < 0:
+                text, farbe = f"-{-betrag}", theme.FARBEN["gefahr"]
+            else:
+                text, farbe = f"+{betrag}", theme.FARBEN["erfolg"]
+            # Mehrere Zahlen für dasselbe Ziel in derselben Runde (z.B.
+            # Flächenschaden + Reflexion) leicht versetzt platzieren, damit
+            # sie sich nicht exakt überlappen.
+            x += len([t for t in self.schwebetexte if abs(t.x - x) < 4]) * 18
+            self.schwebetexte.append(widgets.SchwebeText(text, x, y, farbe))
 
     def _baue_aktionsbuttons(self):
         self.gewaehlte_aktion = None
@@ -485,6 +517,7 @@ class KampfScene(Szene):
 
     def _runde(self, aktion, gegner_ziel=None, verbuendeter_ziel=None):
         self.kampf.runde_ausfuehren(aktion, gegner_ziel=gegner_ziel, verbuendeter_ziel=verbuendeter_ziel)
+        self._schwebetexte_erzeugen()
         self._auto_scroll = True
         if self.kampf.beendet:
             ergebnis = self.kampf.ergebnis()
@@ -510,7 +543,7 @@ class KampfScene(Szene):
             self._baue_aktionsbuttons()
 
     def draw(self, surface):
-        surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
+        hintergruende.zeichnen(surface, self.ort_id)
         _statusleiste(surface, self.charakter)
 
         gegner_lebend = self.kampf.gegner_lebend()
@@ -523,7 +556,7 @@ class KampfScene(Szene):
             hp_text = theme.font(15).render(f"{gegner.name}: {gegner.hp}/{gegner.hp_max} HP", True, theme.FARBEN["text"])
             surface.blit(hp_text, (theme.BREITE // 2 - hp_text.get_width() // 2, y))
             balken_rect = pygame.Rect(theme.BREITE // 2 - 200, y + 18, 400, 12)
-            widgets.balken(surface, balken_rect, gegner.hp / max(1, gegner.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+            widgets.animierter_balken(surface, balken_rect, (id(gegner), gegner.name, "hp"), gegner.hp / max(1, gegner.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
             y += 34
 
         # Begleiter-HP links neben den Gegnern - die Statusleiste oben zeigt
@@ -536,8 +569,12 @@ class KampfScene(Szene):
             beg_text = theme.font(15).render(f"{begleiter.name} ({begleiter.rolle}): {begleiter.hp_aktuell}/{begleiter.hp_max} HP{zustand}", True, theme.FARBEN["text_dim"] if ko else theme.FARBEN["text"])
             surface.blit(beg_text, (80, by))
             balken_rect = pygame.Rect(80, by + 18, 260, 12)
-            widgets.balken(surface, balken_rect, begleiter.hp_aktuell / max(1, begleiter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
+            widgets.animierter_balken(surface, balken_rect, (id(begleiter), "hp"), begleiter.hp_aktuell / max(1, begleiter.hp_max), theme.FARBEN["hp_voll"], theme.FARBEN["hp_leer"])
             by += 34
+
+        schwebe_font = theme.font_titel(22)
+        for schwebetext in self.schwebetexte:
+            schwebetext.draw(surface, schwebe_font)
 
         widgets.panel(surface, self._textrect, ornament=True)
         innen = self._textrect.inflate(-30, -30)
@@ -590,7 +627,7 @@ class MeldungScene(Szene):
             self.on_weiter()
 
     def draw(self, surface):
-        surface.blit(hintergruende.hintergrund_fuer(self.ort_id), (0, 0))
+        hintergruende.zeichnen(surface, self.ort_id)
         titel_label = theme.font_titel(30).render(self.titel, True, theme.FARBEN["akzent_hell"])
         surface.blit(titel_label, (80, 60))
         widgets.trennlinie(surface, 80 + titel_label.get_width() // 2, 60 + titel_label.get_height() + 12, breite=min(420, titel_label.get_width() + 60))

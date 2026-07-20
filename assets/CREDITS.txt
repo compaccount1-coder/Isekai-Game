@@ -16,5 +16,15 @@ UI-Grafiken (Creative Commons Zero 1.0 - CC0, keine Nennung erforderlich):
 Musik (Creative Commons Zero 1.0 - CC0, keine Nennung erforderlich):
   - "Battle Theme" - assets/musik/kampf.mp3
     Bezug: https://opengameart.org/content/battle-theme-0
+  - "Battle Theme A" - assets/musik/kampf_konfrontation.mp3
+    Bezug: https://opengameart.org/content/battle-theme-a
+  - "Boss Fight" - assets/musik/kampf_endgegner.mp3
+    Bezug: https://opengameart.org/content/boss-fight-0
   - "Town Theme RPG" - assets/musik/erkundung.mp3
     Bezug: https://opengameart.org/content/town-theme-rpg
+  - "Forest Ambience" - assets/musik/erkundung_wald.mp3
+    Bezug: https://opengameart.org/content/forest-ambience
+  - "The Field Of Dreams" - assets/musik/erkundung_felder.mp3
+    Bezug: https://opengameart.org/content/the-field-of-dreams
+  - "Medieval: The Old Tower Inn" - assets/musik/erkundung_taverne.mp3
+    Bezug: https://opengameart.org/content/medieval-the-old-tower-inn

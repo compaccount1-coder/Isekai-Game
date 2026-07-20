@@ -6,7 +6,9 @@ Rand für Textkontrast), die jede Szene wie aus einem Guss wirken lässt statt
 wie ein einzelnes flaches Farbverlauf-Rechteck. Jede Szene wird beim ersten
 Zugriff einmal gerendert und danach nur noch geblittet."""
 
+import math
 import random
+import time
 
 import pygame
 
@@ -15,6 +17,8 @@ from gui import theme
 _CACHE: dict[str, pygame.Surface] = {}
 _VIGNETTE_CACHE: dict[tuple[int, int], pygame.Surface] = {}
 _KORN_CACHE: pygame.Surface | None = None
+_PARTIKEL_CACHE: dict[str, list[tuple[float, float, float, float]]] = {}
+_GLUTPUNKT: pygame.Surface | None = None
 
 
 def _verlauf(breite: int, hoehe: int, *stops: tuple) -> pygame.Surface:
@@ -303,3 +307,60 @@ def hintergrund_fuer(ort_id: str | None) -> pygame.Surface:
         surface = builder(theme.BREITE, theme.HOEHE)
         _CACHE[schluessel] = _nachbearbeitung(surface)
     return _CACHE[schluessel]
+
+
+# ---------------------------------------------------------------------------
+# Leichte Ambient-Animation: der statische, einmalig gerenderte Hintergrund
+# bekommt darüber ein paar sacht treibende, pulsierende Lichtpunkte - macht
+# selbst ruhige Menüszenen spürbar "lebendig" statt komplett bewegungslos,
+# ohne dass die (teure) Hintergrundgrafik selbst pro Frame neu gezeichnet
+# werden müsste.
+# ---------------------------------------------------------------------------
+
+_PARTIKEL_ANZAHL = 12
+_TREIBSTRECKE = 160  # Pixel, die ein Punkt zurücklegt, bevor er von vorn beginnt
+
+
+def _glutpunkt() -> pygame.Surface:
+    global _GLUTPUNKT
+    if _GLUTPUNKT is None:
+        groesse = 10
+        s = pygame.Surface((groesse, groesse), pygame.SRCALPHA)
+        pygame.draw.circle(s, (255, 236, 200, 255), (groesse // 2, groesse // 2), groesse // 2)
+        _GLUTPUNKT = s
+    return _GLUTPUNKT
+
+
+def _partikel_basis(schluessel: str) -> list[tuple[float, float, float, float]]:
+    """(x, y_start, geschwindigkeit, phase) je Partikel - pro Ort fest, damit
+    nur die verstrichene Zeit die Bewegung antreibt und sie bei jedem
+    Bildaufbau gleich aussieht."""
+    if schluessel not in _PARTIKEL_CACHE:
+        rng = random.Random(abs(hash(schluessel)) % (2**32))
+        _PARTIKEL_CACHE[schluessel] = [
+            (
+                rng.uniform(60, theme.BREITE - 60),
+                rng.uniform(0, _TREIBSTRECKE),
+                rng.uniform(7, 16),
+                rng.uniform(0, 6.283),
+            )
+            for _ in range(_PARTIKEL_ANZAHL)
+        ]
+    return _PARTIKEL_CACHE[schluessel]
+
+
+def zeichnen(surface: pygame.Surface, ort_id: str | None):
+    """Zeichnet den (gecachten) Hintergrund plus die animierte Funkel-Schicht
+    obendrauf - der übliche Aufruf anstelle des reinen
+    `surface.blit(hintergrund_fuer(ort_id), (0, 0))`."""
+    surface.blit(hintergrund_fuer(ort_id), (0, 0))
+    schluessel = ort_id or "hub"
+    t = time.perf_counter()
+    punkt = _glutpunkt()
+    unten = int(theme.HOEHE * 0.62)  # Partikel bleiben im oberen/mittleren Bildbereich, nicht hinter Panels
+    for x, y_start, geschwindigkeit, phase in _partikel_basis(schluessel):
+        y = unten - ((t * geschwindigkeit * 6 + y_start) % _TREIBSTRECKE)
+        helligkeit = 0.5 + 0.5 * math.sin(t * 0.9 + phase)
+        alpha = int(20 + 55 * helligkeit)
+        punkt.set_alpha(alpha)
+        surface.blit(punkt, (int(x) - punkt.get_width() // 2, int(y) - punkt.get_height() // 2))

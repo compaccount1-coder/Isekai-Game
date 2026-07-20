@@ -1,6 +1,7 @@
 """Wiederverwendbare UI-Bausteine: Buttons, Textfelder, Balken, Textumbruch,
 sowie gemeinsame Zeichenhilfen (Verläufe, weiche Schatten, Eck-Ornamente)."""
 
+import time
 from pathlib import Path
 
 import pygame
@@ -22,6 +23,11 @@ def _bild(name: str) -> "pygame.Surface":
 # genutzt, damit jedes UI-Element denselben "polierten" Look teilt statt
 # flacher Ein-Farb-Rechtecke mit dünnem Rand.
 # ---------------------------------------------------------------------------
+
+def _mische(farbe_a, farbe_b, anteil: float):
+    anteil = max(0.0, min(1.0, anteil))
+    return tuple(int(a + (b - a) * anteil) for a, b in zip(farbe_a, farbe_b))
+
 
 def schatten(surface, rect, radius=10, versatz=(0, 4)):
     """Simuliert einen weichen Schlagschatten über mehrere, zunehmend größere
@@ -89,6 +95,10 @@ class Button:
         self.subtitle = subtitle
         self.subtitle_font = theme.font(subtitle_groesse) if subtitle else None
         self.hover = False
+        # 0 = normaler Zustand, 1 = voll "aufgehellt" - nähert sich beim
+        # Zeichnen sanft an, statt beim Drüberfahren hart umzuspringen.
+        self._hover_anteil = 0.0
+        self._letzte_zeit = time.perf_counter()
 
     def handle_event(self, event) -> bool:
         if not self.enabled:
@@ -100,16 +110,29 @@ class Button:
                 return True
         return False
 
+    def _hover_aktualisieren(self) -> float:
+        jetzt = time.perf_counter()
+        dt = min(0.1, max(0.0, jetzt - self._letzte_zeit))
+        self._letzte_zeit = jetzt
+        ziel = 1.0 if (self.hover and self.enabled) else 0.0
+        self._hover_anteil += (ziel - self._hover_anteil) * min(1.0, 12.0 * dt)
+        if abs(ziel - self._hover_anteil) < 0.01:
+            self._hover_anteil = ziel
+        return self._hover_anteil
+
     def draw(self, surface):
         radius = min(12, self.rect.height // 3)
+        hover_anteil = self._hover_aktualisieren()
         if not self.enabled:
             oben, unten, rand = theme.FARBEN["button_deaktiviert_oben"], theme.FARBEN["button_deaktiviert_unten"], theme.FARBEN["button_rand_dim"]
         else:
             schatten(surface, self.rect, radius=radius, versatz=(0, 3))
-            if self.hover:
-                oben, unten, rand = theme.FARBEN["button_hover_oben"], theme.FARBEN["button_hover_unten"], theme.FARBEN["akzent_hell"]
-            else:
-                oben, unten, rand = theme.FARBEN["button_oben"], theme.FARBEN["button_unten"], theme.FARBEN["button_rand"]
+            # Farben statt hart zwischen normal/hover umzuschalten weich
+            # überblenden - macht aus dem Drüberfahren eine kleine Geste
+            # statt eines abrupten Umschaltens.
+            oben = _mische(theme.FARBEN["button_oben"], theme.FARBEN["button_hover_oben"], hover_anteil)
+            unten = _mische(theme.FARBEN["button_unten"], theme.FARBEN["button_hover_unten"], hover_anteil)
+            rand = _mische(theme.FARBEN["button_rand"], theme.FARBEN["akzent_hell"], hover_anteil)
         verlauf_rect(surface, self.rect, oben, unten, radius=radius)
         pygame.draw.rect(surface, rand, self.rect, width=2, border_radius=radius)
         if self.enabled:
@@ -211,6 +234,71 @@ def balken(surface, rect, anteil, farbe_voll, farbe_leer):
         hell = tuple(min(255, int(c * 1.35)) for c in farbe_voll)
         verlauf_rect(surface, (rect.x, rect.y, breite, rect.height), hell, farbe_voll, radius=radius)
     pygame.draw.rect(surface, (10, 8, 12), rect, width=1, border_radius=radius)
+
+
+class SchwebeText:
+    """Ein Text, der langsam nach oben treibt und dabei ausblendet - für
+    Schadens-/Heilzahlen im Kampf. update() gibt False zurück, sobald er
+    verblasst ist; der Aufrufer sollte ihn dann aus seiner Liste entfernen."""
+
+    def __init__(self, text: str, x: float, y: float, farbe, lebensdauer: float = 1.0, aufstieg: float = 46.0):
+        self.text = text
+        self.x = x
+        self.start_y = y
+        self.farbe = farbe
+        self.lebensdauer = lebensdauer
+        self.aufstieg = aufstieg
+        self.alter = 0.0
+
+    def update(self, dt: float) -> bool:
+        self.alter += dt
+        return self.alter < self.lebensdauer
+
+    def draw(self, surface, font):
+        fortschritt = min(1.0, self.alter / self.lebensdauer)
+        y = self.start_y - self.aufstieg * fortschritt
+        alpha = int(255 * (1.0 - fortschritt) ** 1.5)
+        label = font.render(self.text, True, self.farbe)
+        label.set_alpha(alpha)
+        surface.blit(label, label.get_rect(center=(int(self.x), int(y))))
+
+
+class AnimierterWert:
+    """Ein Zahlenwert (0..1), der sich pro Aufruf sanft dem tatsächlichen
+    Zielwert annähert statt sofort zu springen - für HP-/MP-Balken, die sich
+    nach Schaden oder Heilung weich statt abrupt verändern sollen. Verfolgt
+    die Zeit selbst über die Systemuhr, statt dass jeder Aufrufer sein
+    eigenes dt durchreichen müsste."""
+
+    def __init__(self, start: float, geschwindigkeit: float = 4.5):
+        self.wert = start
+        self.geschwindigkeit = geschwindigkeit
+        self._letzte_zeit = time.perf_counter()
+
+    def aktualisiert(self, ziel: float) -> float:
+        jetzt = time.perf_counter()
+        dt = min(0.1, max(0.0, jetzt - self._letzte_zeit))
+        self._letzte_zeit = jetzt
+        differenz = ziel - self.wert
+        if abs(differenz) < 0.002:
+            self.wert = ziel
+        else:
+            self.wert += differenz * min(1.0, self.geschwindigkeit * dt)
+        return self.wert
+
+
+_ANIMIERTE_WERTE: dict[object, AnimierterWert] = {}
+
+
+def animierter_balken(surface, rect, schluessel, ziel_anteil, farbe_voll, farbe_leer, geschwindigkeit=4.5):
+    """Wie balken(), aber der Füllstand nähert sich Veränderungen weich an,
+    statt bei jedem Treffer/jeder Heilung sofort zu springen. `schluessel`
+    muss je Balken eindeutig und über mehrere Frames hinweg stabil sein
+    (z.B. (id(objekt), "hp")) - der Animationszustand wird darüber gemerkt."""
+    if schluessel not in _ANIMIERTE_WERTE:
+        _ANIMIERTE_WERTE[schluessel] = AnimierterWert(ziel_anteil, geschwindigkeit)
+    angezeigt = _ANIMIERTE_WERTE[schluessel].aktualisiert(max(0.0, min(1.0, ziel_anteil)))
+    balken(surface, rect, angezeigt, farbe_voll, farbe_leer)
 
 
 def panel(surface, rect, farbe=None, ornament=False):

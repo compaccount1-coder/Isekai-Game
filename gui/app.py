@@ -12,6 +12,11 @@ from gui import einstellungen, musik, theme
 # genug, dass im Ernstfall nie viel Fortschritt verloren geht.
 AUTOSAVE_INTERVALL_SEKUNDEN = 180.0
 
+# Kurze Abblende beim Szenenwechsel statt eines harten Schnitts - bewusst
+# knapp gehalten, damit sich die vielen Menüwechsel in diesem Spiel trotzdem
+# noch reaktionsschnell anfühlen und nicht zäh wirken.
+FADE_DAUER_SEKUNDEN = 0.14
+
 
 class App:
     """Zeichnet jede Szene auf eine feste logische Fläche (theme.BREITE x
@@ -38,6 +43,9 @@ class App:
         self.laeuft = True
         self.szene = None
         self._autosave_timer = 0.0
+        self._naechste_szene = None
+        self._fade = 0.0
+        self._fade_ausblenden = False
 
     # -- Anzeige-Einstellungen -------------------------------------------
 
@@ -97,7 +105,27 @@ class App:
     # -- Szenen-/Spielschleife --------------------------------------------
 
     def wechsle_szene(self, neue_szene):
-        self.szene = neue_szene
+        """Wechselt zur neuen Szene über eine kurze Abblende (siehe
+        _fade_aktualisieren) statt eines harten Schnitts. Die allererste
+        Szene (self.szene ist noch None) erscheint ohne Überblendung."""
+        if self.szene is None:
+            self.szene = neue_szene
+            return
+        self._naechste_szene = neue_szene
+        self._fade_ausblenden = True
+
+    def _fade_aktualisieren(self, dt):
+        if not self._fade_ausblenden and self._fade <= 0.0:
+            return
+        schritt = dt / FADE_DAUER_SEKUNDEN
+        if self._fade_ausblenden:
+            self._fade = min(1.0, self._fade + schritt)
+            if self._fade >= 1.0 and self._naechste_szene is not None:
+                self.szene = self._naechste_szene
+                self._naechste_szene = None
+                self._fade_ausblenden = False
+        else:
+            self._fade = max(0.0, self._fade - schritt)
 
     def starten(self, erste_szene):
         self.szene = erste_szene
@@ -125,8 +153,14 @@ class App:
                 break
             self.szene.update(dt)
             self._autosave_pruefen(dt)
+            self._fade_aktualisieren(dt)
+            musik.aktualisieren()
             self.logische_flaeche.fill(theme.FARBEN["hintergrund"])
             self.szene.draw(self.logische_flaeche)
+            if self._fade > 0.0:
+                schleier = pygame.Surface((theme.BREITE, theme.HOEHE), pygame.SRCALPHA)
+                schleier.fill((0, 0, 0, int(255 * self._fade)))
+                self.logische_flaeche.blit(schleier, (0, 0))
             self._praesentieren()
         pygame.quit()
 

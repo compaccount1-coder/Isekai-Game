@@ -213,6 +213,7 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
         if b.rolle == "Fernkämpfer":
             schaden = max(1, int(anteil * random.uniform(0.9, 1.3)))
             gegner.hp = max(0, gegner.hp - schaden)
+            kampf._notiere(gegner, -schaden)
             log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
         elif b.rolle == "Unterstützer":
             effekt = skill_effekt(skill.name)
@@ -220,18 +221,24 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
                 if charakter.hp_aktuell < charakter.hp_max:
                     mult = 1.6 if effekt == "notheilung" else 1.0
                     heilung = charakter.heilen(max(1, int(anteil * random.uniform(0.8, 1.2) * mult)))
+                    kampf._notiere(charakter, heilung)
                     log.append(f"   {b.name} setzt {skill.name} ein und heilt {charakter.name} um {heilung} HP. [{charakter.name}: {charakter.hp_aktuell}/{charakter.hp_max} HP]")
                 else:
                     log.append(f"   {b.name} setzt {skill.name} ein, doch {charakter.name} braucht keine Heilung.")
             elif effekt == "gruppenheilung":
-                gesamt = charakter.heilen(max(1, int(anteil * random.uniform(0.5, 0.8))))
+                heilung_spieler = charakter.heilen(max(1, int(anteil * random.uniform(0.5, 0.8))))
+                kampf._notiere(charakter, heilung_spieler)
+                gesamt = heilung_spieler
                 for andere in charakter.begleiter:
                     if andere is not b and not andere.niedergeschlagen:
-                        gesamt += andere.heilen(max(1, int(anteil * random.uniform(0.4, 0.7))))
+                        heilung_andere = andere.heilen(max(1, int(anteil * random.uniform(0.4, 0.7))))
+                        kampf._notiere(andere, heilung_andere)
+                        gesamt += heilung_andere
                 log.append(f"   {b.name} setzt {skill.name} ein und heilt die gesamte Gruppe (insgesamt {gesamt} HP).")
             elif effekt in ("schaden", "schaden_debuff"):
                 schaden = max(1, int(anteil * random.uniform(0.7, 1.0)))
                 gegner.hp = max(0, gegner.hp - schaden)
+                kampf._notiere(gegner, -schaden)
                 if effekt == "schaden_debuff":
                     gegner.angriffskraft = max(1, int(gegner.angriffskraft * 0.92))
                 log.append(f"   {b.name} setzt {skill.name} ein und trifft {gegner.name} - {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
@@ -247,6 +254,7 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
         else:  # Nahkämpfer - zieht als Tank die Aufmerksamkeit auf sich
             schaden = max(1, int(anteil * random.uniform(0.5, 0.8)))
             gegner.hp = max(0, gegner.hp - schaden)
+            kampf._notiere(gegner, -schaden)
             schadensreduktion += 0.12
             log.append(f"   {b.name} setzt {skill.name} ein, zieht {gegner.name}s Aufmerksamkeit auf sich und trifft für {schaden} Schaden. [{gegner.name}: {gegner.hp}/{gegner.hp_max} HP]")
 
@@ -300,6 +308,15 @@ class Kampf:
         # Signatur-Fähigkeiten, die in diesem Kampf bereits eingesetzt wurden -
         # jede darf nur einmal pro Kampf gewirkt werden.
         self.signatur_verwendet: set[str] = set()
+        # (Ziel, Betrag)-Paare aus der zuletzt ausgeführten Runde - negativ
+        # für Schaden, positiv für Heilung. Rein informativ für die GUI (z.B.
+        # schwebende Zahlen über den Beteiligten), spielt für die eigentliche
+        # Logik keine Rolle und wird bei jeder Runde neu befüllt.
+        self.letzte_zahlen: list[tuple[object, int]] = []
+
+    def _notiere(self, ziel, betrag: int):
+        if betrag != 0:
+            self.letzte_zahlen.append((ziel, betrag))
 
     def gegner_lebend(self) -> list[Kampfgegner]:
         return [g for g in self.gegnergruppe if g.hp > 0]
@@ -341,6 +358,7 @@ class Kampf:
         charakter = self.charakter
         zeilen = [f"-- Runde {self.runde + 1} --"]
         self.runde += 1
+        self.letzte_zahlen = []
 
         if charakter.hp_aktuell < charakter.hp_max * 0.3:
             trank_meldung = charakter.bestes_trank_automatisch_nutzen("Heilung")
@@ -389,6 +407,7 @@ class Kampf:
                 if kritisch:
                     schaden = int(schaden * 1.6)
                 ziel.hp = max(0, ziel.hp - schaden)
+                self._notiere(ziel, -schaden)
                 if effekt == "schaden_debuff":
                     ziel.angriffskraft = max(1, int(ziel.angriffskraft * 0.9))
                 krit_text = " (KRITISCHER TREFFER!)" if kritisch else ""
@@ -401,11 +420,14 @@ class Kampf:
             basis_anteil = 0.3 if effekt == "notheilung" else 0.16
             heilmenge = max(1, int(empfaenger.hp_max * (basis_anteil + skill_level * 0.02)))
             geheilt = empfaenger.heilen(heilmenge)
+            self._notiere(empfaenger, geheilt)
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt {empfaenger.name} um {geheilt} HP. [{empfaenger.name}: {empfaenger.hp_aktuell}/{empfaenger.hp_max} HP]")
         elif effekt == "gruppenheilung":
             gesamt = 0
             for ziel in self.verbuendete_lebend():
-                gesamt += ziel.heilen(max(1, int(ziel.hp_max * (0.18 + skill_level * 0.015) * signatur_mult)))
+                geheilt = ziel.heilen(max(1, int(ziel.hp_max * (0.18 + skill_level * 0.015) * signatur_mult)))
+                self._notiere(ziel, geheilt)
+                gesamt += geheilt
             zeilen.append(f"   {charakter.name} setzt {gewaehlte_aktion} ein und heilt die gesamte Gruppe (insgesamt {gesamt} HP).")
         elif effekt == "buff":
             ziel = verbuendeter_ziel if verbuendeter_ziel is not None else charakter
@@ -470,12 +492,14 @@ class Kampf:
             else:
                 ziel.schaden_erleiden(gegen_schaden)
                 hp_text = f"{ziel.hp_aktuell}/{ziel.hp_max}"
+            self._notiere(ziel, -gegen_schaden)
 
             zeile = f"   {gegner.name} {angriffsname} - {gegen_schaden} Schaden an {ziel.name}. [{ziel.name}: {hp_text} HP]"
             if self.reflexion_runden > 0 and gegen_schaden > 0:
                 reflektiert = int(gegen_schaden * self.reflexion_staerke)
                 if reflektiert > 0:
                     gegner.hp = max(0, gegner.hp - reflektiert)
+                    self._notiere(gegner, -reflektiert)
                     zeile += f" - reflektiert {reflektiert} Schaden zurück an {gegner.name} ({gegner.hp}/{gegner.hp_max} HP)"
                     if gegner.hp <= 0:
                         zeile += f"! 💀 {gegner.name} ist besiegt!"
