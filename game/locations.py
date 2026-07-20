@@ -354,7 +354,7 @@ def besuche_gruppe(charakter: Charakter) -> Ereignis:
     """Begleiter ansehen und entlassen kostet keine Aktion - erst das
     tatsächliche Anheuern eines neuen Mitglieds zählt als Tagesaktivität."""
     synergie = "ausgewogen (Nahkampf, Fernkampf und Unterstützung vertreten)" if ist_ausgewogene_gruppe(charakter.begleiter) else "nicht ausgewogen"
-    optionen = [f"{b.anzeige()} - Entlassen" for b in charakter.begleiter]
+    optionen = [f"{b.anzeige()} - Entlassen [Ausrüstung: {b.ausruestung_kurzuebersicht()}]" for b in charakter.begleiter]
     if len(charakter.begleiter) < 3:
         optionen.append("Neue Abenteurer kennenlernen (anheuern)")
     optionen.append("Zurück")

@@ -4,6 +4,7 @@ import random
 from dataclasses import dataclass
 
 from game.classes import KLASSEN, ROLLEN, klassen_nach_rolle
+from game.items import Item
 
 BEGLEITER_NAMEN = [
     "Joric", "Sennah", "Baldwin", "Yris", "Corran", "Thessaly", "Aldous", "Perrin",
@@ -26,6 +27,9 @@ class Begleiter:
     xp: int = 0
     hp_max: int = 0
     hp_aktuell: int = 0
+    waffe: Item | None = None
+    ruestung: Item | None = None
+    accessoire: Item | None = None
 
     def __post_init__(self):
         self._hp_neu_berechnen()
@@ -69,6 +73,47 @@ class Begleiter:
     def anzeige(self) -> str:
         zustand = " [niedergeschlagen]" if self.niedergeschlagen else ""
         return f"{self.name} (Lv.{self.level} {self.klassenname} - {self.rolle}, {self.eigenschaft}) HP {self.hp_aktuell}/{self.hp_max}{zustand}"
+
+    # -- Ausrüstung ---------------------------------------------------------
+    # Begleiter führen bewusst kein eigenes Inventar wie der Protagonist -
+    # sie tragen nur ihre drei Ausrüstungs-Slots, rüsten Funde automatisch
+    # aus, sobald sie besser sind, und verkaufen alles andere sofort in die
+    # gemeinsame Gruppenkasse (siehe combat.Kampf._begleiter_funde_verarbeiten).
+
+    def _slot_fuer_typ(self, typ: str) -> str:
+        return {"Waffe": "waffe", "Ruestung": "ruestung", "Accessoire": "accessoire"}[typ]
+
+    def ausgeruestetes_item(self, typ: str) -> Item | None:
+        return getattr(self, self._slot_fuer_typ(typ))
+
+    def item_ist_besser(self, item: Item) -> bool:
+        aktuelles = self.ausgeruestetes_item(item.typ)
+        return aktuelles is None or item.stat_gesamt() > aktuelles.stat_gesamt()
+
+    def ausruestung_kurzuebersicht(self) -> str:
+        teile = [i.name for i in (self.waffe, self.ruestung, self.accessoire) if i]
+        return ", ".join(teile) if teile else "keine Ausrüstung"
+
+    def ausruestung_bonus(self) -> int:
+        """Gesamter Statbonus aus allen ausgerüsteten Gegenständen - fließt
+        in die Kampfkraft des Begleiters ein, damit bessere Ausrüstung sich
+        tatsächlich spürbar auswirkt statt nur kosmetisch zu sein."""
+        return sum(i.stat_gesamt() for i in (self.waffe, self.ruestung, self.accessoire) if i)
+
+    def fund_verarbeiten(self, item: Item) -> tuple[str, int]:
+        """Verarbeitet einen Ausrüstungsfund: ist er besser als das aktuell
+        getragene Teil, wird sofort ausgerüstet und das alte Teil verkauft;
+        andernfalls wird der Fund selbst direkt verkauft. Gibt (Meldung,
+        Verkaufserlös in Gold) zurück - das Gold fließt der gemeinsamen
+        Gruppenkasse (charakter.gold) zu."""
+        if self.item_ist_besser(item):
+            slot = self._slot_fuer_typ(item.typ)
+            altes = getattr(self, slot)
+            setattr(self, slot, item)
+            if altes:
+                return f"{self.name} findet {item.anzeige()}, rüstet es aus und verkauft das alte {altes.name} für {altes.wert}g.", altes.wert
+            return f"{self.name} findet {item.anzeige()} und rüstet es sofort aus.", 0
+        return f"{self.name} findet {item.anzeige()}, hat aber bereits Besseres und verkauft den Fund für {item.wert}g.", item.wert
 
     def xp_hinzufuegen(self, menge: int) -> bool:
         """Begleiter leveln automatisch mit - keine Verwaltung durch den

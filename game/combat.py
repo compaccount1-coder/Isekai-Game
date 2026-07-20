@@ -13,6 +13,7 @@ import random
 from dataclasses import dataclass, field
 
 from game.classes import KLASSEN, skill_dauer, skill_effekt, skill_ist_aoe, skill_ist_signatur
+from game.items import generiere_item
 
 # Signatur-Fähigkeiten (siehe classes.SKILL_SIGNATUR) wirken deutlich stärker
 # als reguläre Fähigkeiten - sie sind der exklusive Höhepunkt der jeweiligen
@@ -197,7 +198,12 @@ def _begleiter_runde(kampf: "Kampf", log: list[str]) -> float:
         if not gegner_lebend:
             break
         gegner = gegner_lebend[0]
-        anteil = basis_pro_begleiter * (b.loyalitaet / 100) * (b.level / max(1, charakter.level))
+        # Ausrüstung (siehe Begleiter.fund_verarbeiten) macht sich hier
+        # spürbar bemerkbar, statt nur kosmetisch/als Goldquelle zu wirken -
+        # gedeckelt, damit ein einzelnes Spitzenteil nicht die gesamte
+        # Balance zwischen den Begleitern verschiebt.
+        ausruestungs_mult = 1.0 + min(0.5, b.ausruestung_bonus() * 0.01)
+        anteil = basis_pro_begleiter * (b.loyalitaet / 100) * (b.level / max(1, charakter.level)) * ausruestungs_mult
         if anteil <= 1:
             continue
         skill_pool = KLASSEN[b.klasse_id].skills
@@ -530,11 +536,29 @@ class Kampf:
         ziele = [charakter] + lebende_begleiter
         return random.choices(ziele, weights=gewichte, k=1)[0]
 
+    def _begleiter_funde_verarbeiten(self) -> int:
+        """Begleiter durchsuchen nach einem Sieg eigenständig das Schlachtfeld
+        - zusätzlich zum Fund des Spielers (siehe Ereignis.item an anderer
+        Stelle) findet jeder überlebende Begleiter mit einer gewissen Chance
+        eigene Ausrüstung, rüstet sie automatisch aus falls besser als das
+        Getragene und verkauft alles Überschüssige sofort in die gemeinsame
+        Kasse. Gibt den daraus gewonnenen Gesamterlös zurück."""
+        gesamt_erloes = 0
+        for b in self.charakter.begleiter:
+            if b.niedergeschlagen or random.random() >= 0.25:
+                continue
+            fund = generiere_item(b.level)
+            text, erloes = b.fund_verarbeiten(fund)
+            self.log.append(f"   🎒 {text}")
+            gesamt_erloes += erloes
+        return gesamt_erloes
+
     def ergebnis(self) -> Kampfergebnis:
         gegner_namen = ", ".join(g.name for g in self.gegnergruppe)
         if self.sieg:
             xp = int(20 * self.gegner_staerke_basis * random.uniform(0.8, 1.3))
             gold = int(self.gegner_staerke_basis * random.uniform(1.5, 4))
+            gold += self._begleiter_funde_verarbeiten()
         else:
             xp = int(5 * self.gegner_staerke_basis)
             gold = 0

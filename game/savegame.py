@@ -29,6 +29,14 @@ def _stadt_aus_dict(d: dict) -> Stadt:
     return Stadt(**d)
 
 
+def _begleiter_aus_dict(d: dict) -> Begleiter:
+    d = dict(d)
+    d["waffe"] = _item_aus_dict(d.get("waffe"))
+    d["ruestung"] = _item_aus_dict(d.get("ruestung"))
+    d["accessoire"] = _item_aus_dict(d.get("accessoire"))
+    return Begleiter(**d)
+
+
 def _koenigreich_aus_dict(d: dict) -> Koenigreich:
     d = dict(d)
     d["weitere_staedte"] = [_stadt_aus_dict(s) for s in d["weitere_staedte"]]
@@ -48,7 +56,7 @@ def _charakter_aus_dict(d: dict) -> Charakter:
     d["waffe"] = _item_aus_dict(d["waffe"])
     d["ruestung"] = _item_aus_dict(d["ruestung"])
     d["accessoire"] = _item_aus_dict(d["accessoire"])
-    d["begleiter"] = [Begleiter(**b) for b in d["begleiter"]]
+    d["begleiter"] = [_begleiter_aus_dict(b) for b in d["begleiter"]]
     d["traenke"] = [Trank(**t) for t in d["traenke"]]
     d["gelernte_skills"] = {k: GelernterSkill(**v) for k, v in d["gelernte_skills"].items()}
     return Charakter(**d)
