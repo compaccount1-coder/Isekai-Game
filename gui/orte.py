@@ -16,6 +16,7 @@ from game.endgame import (
     verbleibende_fuersten,
 )
 from game.events import Ereignis, ereignis_dungeon, ereignis_gilde, zufallsereignis
+from game.gildenmeister import gildenmeister_gespraech, gildenmeister_name, naechste_entscheidung
 from game.companions import generiere_rekruten, gruppen_rollen, ist_ausgewogene_gruppe, rekrutierungskosten
 from game.items import generiere_trank, schmiede_upgrade
 from game.locations import (
@@ -268,12 +269,22 @@ def _daemonenjagd_submenu(charakter) -> Submenu:
     return Submenu(f"👹 Dämonenjagd - {besiegt}/{besiegt + len(fuersten)} Unterlinge des Dämonenkönigs gefallen", opts)
 
 
+def _gildenmeister_entscheidung_submenu(charakter, entscheidung) -> Submenu:
+    opts = [(label, (lambda f=funktion: f(charakter))) for label, funktion in entscheidung.optionen]
+    return Submenu(entscheidung.ansage(charakter), opts)
+
+
 def optionen_gildenviertel(charakter, welt) -> list[tuple[str, Aktion]]:
     opts = [("Quest-Brett ansehen", lambda: _quest_brett_submenu(charakter))]
+    gildenmeister_portrait = portraits.gildenmeister(radius=22)
     if not charakter.gilde:
         opts.append(("Einer Gilde beitreten", lambda: ereignis_gilde(charakter, welt)))
     else:
         opts.append(("Auftrag vom Gildenmeister annehmen", lambda: ereignis_gilde(charakter, welt)))
+        opts.append((f"Mit {gildenmeister_name(charakter)}, dem Gildenmeister, sprechen", lambda: gildenmeister_gespraech(charakter), gildenmeister_portrait))
+        entscheidung = naechste_entscheidung(charakter)
+        if entscheidung is not None:
+            opts.append((f"❗ {gildenmeister_name(charakter)} möchte dringend mit dir sprechen", lambda e=entscheidung: _gildenmeister_entscheidung_submenu(charakter, e), gildenmeister_portrait))
     opts.append(("Klatsch und Gerüchte hören", lambda: _gilde_klatsch(charakter)))
     opts.append(("Gezielt einen Dungeon-Einsatz suchen", lambda: ereignis_dungeon(charakter)))
     if kann_aufsteigen(charakter):

@@ -23,6 +23,7 @@ from game.endgame import (
     verbleibende_fuersten,
 )
 from game.events import Ereignis, ereignis_dungeon, ereignis_gilde, zufallsereignis
+from game.gildenmeister import gildenmeister_gespraech, gildenmeister_name, naechste_entscheidung
 from game.items import generiere_item, generiere_trank, schmiede_upgrade
 from game.quests import generiere_quest_brett, quest_abschliessen
 from game.ranks import anforderung_text, kann_aufsteigen, naechster_rang
@@ -526,12 +527,23 @@ def _daemonenjagd(charakter: Charakter) -> "Ereignis | Kampfstart":
     return jage_daemonenfuersten(charakter, fuersten[idx])
 
 
+def _gildenmeister_entscheidung(charakter: Charakter, entscheidung) -> Ereignis:
+    texte = [label for label, _ in entscheidung.optionen]
+    idx = menu_waehlen(entscheidung.ansage(charakter), texte)
+    _, funktion = entscheidung.optionen[idx]
+    return funktion(charakter)
+
+
 def besuche_gildenviertel(charakter: Charakter, welt: Welt) -> Ereignis:
     optionen = ["Quest-Brett ansehen"]
     if not charakter.gilde:
         optionen.append("Einer Gilde beitreten")
     else:
         optionen.append("Auftrag vom Gildenmeister annehmen")
+        optionen.append(f"Mit {gildenmeister_name(charakter)}, dem Gildenmeister, sprechen")
+    ausstehende_entscheidung = naechste_entscheidung(charakter) if charakter.gilde else None
+    if ausstehende_entscheidung is not None:
+        optionen.append(f"❗ {gildenmeister_name(charakter)} möchte dringend mit dir sprechen")
     optionen.append("Klatsch und Gerüchte hören")
     optionen.append("Gezielt einen Dungeon-Einsatz suchen")
 
@@ -550,6 +562,10 @@ def besuche_gildenviertel(charakter: Charakter, welt: Welt) -> Ereignis:
         return _quest_brett_ansehen(charakter, welt)
     elif gewaehlt in ("Einer Gilde beitreten", "Auftrag vom Gildenmeister annehmen"):
         return ereignis_gilde(charakter, welt)
+    elif gewaehlt.startswith("Mit ") and gewaehlt.endswith("sprechen"):
+        return gildenmeister_gespraech(charakter)
+    elif gewaehlt.startswith("❗"):
+        return _gildenmeister_entscheidung(charakter, ausstehende_entscheidung)
     elif gewaehlt == "Klatsch und Gerüchte hören":
         return _gilde_klatsch(charakter)
     elif gewaehlt == "Gezielt einen Dungeon-Einsatz suchen":

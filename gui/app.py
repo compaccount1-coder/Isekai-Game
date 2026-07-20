@@ -1,5 +1,15 @@
 """Haupt-Anwendung: Fenster, Spielschleife und Szenenwechsel."""
 
+import os
+
+# Muss vor pygame.init() gesetzt sein: weist SDL an, beim Hochskalieren einer
+# SCALED-Anzeige (siehe _anzeigemodus_anwenden) einen weichen Filter statt des
+# Standard-Nearest-Neighbor-Filters zu verwenden - sonst wirkt der echte
+# Vollbildmodus (der die 1280x800-Logikfläche auf die oft deutlich höhere
+# Bildschirmauflösung hochskaliert) sichtbar unschärfer/pixeliger als der
+# Fenstermodus in Standardgröße, wo kaum skaliert werden muss.
+os.environ.setdefault("PYGAME_FORCE_SCALE", "photo")
+
 import pygame
 
 from game import savegame
@@ -52,13 +62,35 @@ class App:
     def _anzeigemodus_anwenden(self):
         modus = self.einstellungen["anzeigemodus"]
         if modus == "vollbild":
-            self.fenster = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+            # SCALED lässt SDL die 1280x800-Logikfläche direkt (mit dem
+            # PYGAME_FORCE_SCALE=photo-Filter oben) hochskalieren, statt sie
+            # hier manuell per smoothscale auf die volle Bildschirmauflösung
+            # zu vergrößern (siehe _praesentieren) - das war die Ursache der
+            # sichtbar geringeren Qualität im echten Vollbildmodus gegenüber
+            # dem Fenstermodus, wo praktisch keine Skalierung nötig ist.
+            self._set_mode_sicher((theme.BREITE, theme.HOEHE), pygame.FULLSCREEN | pygame.SCALED)
         elif modus == "randlos":
             info = pygame.display.Info()
-            self.fenster = pygame.display.set_mode((info.current_w, info.current_h), pygame.NOFRAME)
+            self._set_mode_sicher((info.current_w, info.current_h), pygame.NOFRAME)
         else:
             breite, hoehe = self.einstellungen["fenstergroesse"]
-            self.fenster = pygame.display.set_mode((breite, hoehe), pygame.RESIZABLE)
+            self._set_mode_sicher((breite, hoehe), pygame.RESIZABLE)
+
+    def _set_mode_sicher(self, groesse, flags):
+        """SDL kann beim Wechsel WEG von einem SCALED-Fenster (z.B. vollbild
+        -> fenster) mit 'failed to create renderer' scheitern, weil der
+        vorherige Modus intern einen Renderer statt einer einfachen Surface
+        angelegt hat - ein bekannter SDL2-Eigenheit beim Moduswechsel, kein
+        Zeichen für ein echtes Problem. Ein sauberer Display-Neustart vor dem
+        erneuten Versuch behebt das zuverlässig (empirisch mit SDL 2.28
+        geprüft)."""
+        try:
+            self.fenster = pygame.display.set_mode(groesse, flags)
+        except pygame.error:
+            pygame.display.quit()
+            pygame.display.init()
+            pygame.display.set_caption("Isekai Chronicles")
+            self.fenster = pygame.display.set_mode(groesse, flags)
 
     def anzeigemodus_setzen(self, modus: str):
         self.einstellungen["anzeigemodus"] = modus

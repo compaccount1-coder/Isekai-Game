@@ -74,6 +74,8 @@ class Charakter:
     spezialisierung: str | None = None  # None (unentschieden), "Standard" oder "Alternative" (siehe AUFSTIEGSPFADE)
     story_gesehen: list[str] = field(default_factory=list)  # Schlüssel bereits gezeigter Story-Meilensteine
     spielstand_slot: str = ""  # eindeutiger Speicherstand-Slot (siehe game.savegame) - je Charakter/Durchlauf eigener
+    gildenmeister_name: str = ""  # einmalig gewürfelt (siehe game.gildenmeister), bleibt über den ganzen Durchlauf stabil
+    entscheidungen: dict[str, str] = field(default_factory=dict)  # Schlüssel -> gewählte Option, siehe game.gildenmeister.ENTSCHEIDUNGEN
 
     # Nahkämpfer-Klassen, deren Aufstiegsklasse speziell auf Verteidigung der
     # Gruppe ausgelegt ist - nur bei diesen gibt die Wahl "Alternative" die

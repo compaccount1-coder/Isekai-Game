@@ -30,6 +30,10 @@ def _bedingung_erster_fuerst(charakter) -> bool:
     return len(charakter.besiegte_daemonenfuersten) >= 1
 
 
+def _bedingung_mind_fuersten(anzahl: int):
+    return lambda charakter: len(charakter.besiegte_daemonenfuersten) >= anzahl
+
+
 def _bedingung_alle_fuersten(charakter) -> bool:
     return len(charakter.besiegte_daemonenfuersten) >= len(DAEMONENFUERSTEN)
 
@@ -55,6 +59,17 @@ MEILENSTEINE: list[Meilenstein] = [
         ),
     ),
     Meilenstein(
+        "kopfgeldjaeger_level8",
+        _bedingung_level(8),
+        (
+            "\n📋 An der Gildentafel hängt ein neuer Steckbrief, anders als alle anderen: kein Name, nur eine grobe "
+            "Kohleskizze eines gehörnten Schattens, darunter ein absurd hohes Kopfgeld. Ein grauhaariger "
+            "Kopfgeldjäger, der ihn abgenommen hat, um ihn wieder aufzuhängen, schüttelt nur den Kopf. 'Ich jage seit "
+            "dreißig Jahren Monster. Dieses Ding habe ich nicht einmal aus der Nähe gesehen - und ich will es auch "
+            "nicht.'"
+        ),
+    ),
+    Meilenstein(
         "dorf_ueberfall_rang_d",
         _bedingung_rang("D"),
         (
@@ -66,6 +81,17 @@ MEILENSTEINE: list[Meilenstein] = [
         ),
     ),
     Meilenstein(
+        "zweite_vision_level17",
+        _bedingung_level(17),
+        (
+            "\n🌑 Der Traum kehrt zurück, doch diesmal ist er schärfer: die Krone aus schwarzem Rauch trägt jetzt "
+            "Umrisse eines Gesichts, und der Thron aus erstarrten Schreien steht nicht mehr fern, sondern nur noch "
+            "wenige Schritte entfernt. 'Du kommst näher', flüstert die Stimme, fast amüsiert. 'Die meisten wenden "
+            "sich ab, bevor sie so weit sehen können. Du nicht.' Du erwachst mit dem festen Gefühl, beobachtet zu "
+            "werden - auch im Wachen."
+        ),
+    ),
+    Meilenstein(
         "erste_erwaehnung_rang_c",
         _bedingung_rang("C"),
         (
@@ -73,6 +99,17 @@ MEILENSTEINE: list[Meilenstein] = [
             f"Dämoneninvasion vor Generationen. Ein Name taucht darin immer wieder auf, in Tinte, die "
             f"stellenweise wie unter Zwang gezittert geschrieben wirkt: {DAEMONENKOENIG_NAME}. Die Chronik "
             f"endet abrupt, mitten im Satz. Die Gildenältesten weichen deinen Fragen dazu auffällig aus."
+        ),
+    ),
+    Meilenstein(
+        "unterlinge_organisiert_level28",
+        _bedingung_level(28),
+        (
+            "\n🗺️ Reisende Kartografen bringen beunruhigende Neuigkeiten: Überfälle, die früher zufällig und "
+            "chaotisch wirkten, folgen inzwischen einem erkennbaren Muster - Versorgungsrouten werden gezielt "
+            "unterbrochen, Wachposten koordiniert überrannt. 'Das ist kein wildes Gewimmel mehr', sagt einer von "
+            "ihnen und rollt eine mit roten Linien überzogene Karte aus. 'Das ist ein Feldzug. Und irgendjemand "
+            "führt ihn.'"
         ),
     ),
     Meilenstein(
@@ -87,6 +124,16 @@ MEILENSTEINE: list[Meilenstein] = [
         ),
     ),
     Meilenstein(
+        "kriegsvorbereitung_level42",
+        _bedingung_level(42),
+        (
+            "\n⚒️ In jeder größeren Stadt, durch die du kommst, laufen die Schmieden inzwischen im Dauerbetrieb. "
+            "Wachtürme werden verstärkt, alte Stadtmauern ausgebessert, die zuletzt seit Generationen nicht mehr "
+            "gebraucht wurden. Niemand spricht es laut aus, aber jeder handelt danach: die Welt bereitet sich auf "
+            "einen Krieg vor, den sie noch nicht offiziell erklärt hat."
+        ),
+    ),
+    Meilenstein(
         "koalition_rang_a",
         _bedingung_rang("A"),
         (
@@ -94,6 +141,17 @@ MEILENSTEINE: list[Meilenstein] = [
             "vom Rang A aufwärts zusammen: eine Koalition der Verteidiger soll entstehen, um sich auf die "
             "unausweichliche Konfrontation mit Abraxos vorzubereiten. Du spürst, dass sich etwas verändert "
             "hat - du bist nicht mehr nur ein Abenteurer unter vielen. Man erwartet etwas von dir."
+        ),
+    ),
+    Meilenstein(
+        "albtraum_gewissheit_level60",
+        _bedingung_level(60),
+        (
+            f"\n👁️ Der wiederkehrende Traum endet diesmal anders: die Stimme spricht endlich ihren eigenen Namen "
+            f"aus - {DAEMONENKOENIG_NAME} - und für einen einzigen, endlosen Moment siehst du seine Augen. Kein "
+            f"Zweifel bleibt mehr, keine Deutung, kein Vielleicht. Du erwachst nicht schweißgebadet vor Angst, "
+            f"sondern seltsam ruhig. Die Ungewissheit, die dich all die Jahre begleitet hat, ist einer kalten, "
+            f"klaren Gewissheit gewichen: dieser Kampf wird kommen, und du wirst ihn führen."
         ),
     ),
     Meilenstein(
@@ -115,6 +173,16 @@ MEILENSTEINE: list[Meilenstein] = [
             "der Welt: zum ersten Mal seit Generationen ist einer der Unterlinge des Dämonenkönigs gefallen "
             "- und zwar durch deine Hand. Für einen Moment scheint die Welt aufzuatmen. Doch tief in dir "
             "weißt du: das war erst der Anfang."
+        ),
+    ),
+    Meilenstein(
+        "zwei_fuersten_gefallen",
+        _bedingung_mind_fuersten(2),
+        (
+            "\n🕯️ Die Hälfte der Unterlinge ist gefallen. In der Gildenhalle brennen inzwischen Kerzen für jeden "
+            "besiegten Fürsten - eine spontane Tradition, die niemand angeordnet hat und die sich trotzdem "
+            "durchgesetzt hat. Der Rest der Welt beginnt zu ahnen, dass diese Geschichte tatsächlich ein Ende "
+            "haben könnte - und dass du es bist, der es schreibt."
         ),
     ),
     Meilenstein(

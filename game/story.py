@@ -66,6 +66,37 @@ def erstelle_charakter() -> Charakter:
 # Enden
 # ---------------------------------------------------------------------------
 
+def _entscheidungs_epilog(charakter: Charakter) -> list[str]:
+    """Ein paar persönliche Zeilen, die frühere Entscheidungen beim
+    Gildenmeister (siehe game.gildenmeister.ENTSCHEIDUNGEN) im Epilog
+    aufgreifen - damit sich die Wahl spürbar auf die abschließende Geschichte
+    auswirkt, statt folgenlos im Verlauf zu verschwinden. Liest nur das
+    bereits gesetzte gildenmeister_name-Feld (statt es über
+    gildenmeister_name() zu würfeln) - ein Charakter, der nie einer Gilde
+    beitrat, soll im Epilog keinen Gildenmeister zugewiesen bekommen, den er
+    im Spiel nie getroffen hat."""
+    entscheidungen = charakter.entscheidungen
+    if not entscheidungen:
+        return []
+    name = charakter.gildenmeister_name or "der Gildenmeister"
+    zeilen = []
+    if entscheidungen.get("gefangener_kundschafter") == "gnade":
+        zeilen.append(f"Man erinnert sich noch heute an die Gnade, die {charakter.name} einst einem gefangenen Kundschafter erwies - ein seltener Moment der Menschlichkeit inmitten des Krieges.")
+    elif entscheidungen.get("gefangener_kundschafter") == "strafe":
+        zeilen.append(f"{charakter.name}s Härte gegenüber gefangenen Feinden blieb bis zum Ende unumstritten - gefürchtet von den einen, respektiert von den anderen.")
+    if entscheidungen.get("soeldner_buendnis") == "buendnis":
+        zeilen.append(f"Das Bündnis, für das {charakter.name} einst bürgte, hielt bis zur letzten Schlacht - ein Beweis, dass Vertrauen manchmal die stärkste Waffe ist.")
+    elif entscheidungen.get("soeldner_buendnis") == "ablehnung":
+        zeilen.append(f"{charakter.name}s vorsichtige Zurückhaltung gegenüber der fremden Söldnertruppe erwies sich im Rückblick als weise - nicht jedes Bündnis hätte gehalten.")
+    if entscheidungen.get("koalition_strategie") == "angriff":
+        zeilen.append(f"Die Koalition, die auf {charakter.name}s Rat hin offensiv vorging, bezahlte einen hohen Preis - doch sie gewann Zeit, die sich am Ende als entscheidend erwies.")
+    elif entscheidungen.get("koalition_strategie") == "verteidigung":
+        zeilen.append(f"Die besonnene Verteidigungsstrategie, für die {charakter.name} plädierte, rettete unzählige Leben, die ein hastigerer Kurs gekostet hätte.")
+    if zeilen:
+        zeilen.insert(0, f"\n{name} und die gesamte Gilde erinnern sich an die Entscheidungen, die diesen Weg geprägt haben:")
+    return zeilen
+
+
 def erzeuge_ende(charakter: Charakter, welt: Welt, grund: str) -> str:
     zeilen = ["\n" + "=" * 70, "📖 DAS ENDE DEINER GESCHICHTE", "=" * 70]
 
@@ -91,6 +122,8 @@ def erzeuge_ende(charakter: Charakter, welt: Welt, grund: str) -> str:
 
     else:
         zeilen.append(f"{charakter.name}s Geschichte endet hier, nach {charakter.tage_vergangen} Tagen in dieser Welt.")
+
+    zeilen.extend(_entscheidungs_epilog(charakter))
 
     zeilen.append(f"\nEndstatistik: {charakter.status_zeile()}")
     zeilen.append(f"Besiegte Gegner: {charakter.besiegte_gegner}")

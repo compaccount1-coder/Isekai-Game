@@ -1,7 +1,9 @@
 """Alle Bildschirme (Szenen) der grafischen Oberfläche: Titel, Charakter-
 erstellung, Haupt-Hub, Ort-Menüs und Ergebnis-/Ende-Anzeigen."""
 
+import math
 import random
+import time
 
 import pygame
 
@@ -11,6 +13,8 @@ from gui import einstellungen, hintergruende, musik, orte, portraits, spiellauf,
 from game.character import MAX_AKTIONEN_PRO_TAG, Charakter
 from game.classes import KLASSEN, skill_ist_aoe, skill_ist_signatur
 from game.combat import Kampfstart
+from game.endgame import DAEMONENFUERSTEN, DAEMONENKOENIG_NAME, daemonenjagd_verfuegbar, demonenkoenig_verfuegbar
+from game.gildenmeister import gildenmeister_name, naechste_entscheidung
 from game.story import ISEKAI_INTROS, PERSOENLICHKEITEN, erzeuge_ende
 from game.world import generiere_welt
 from gui.orte import Submenu
@@ -247,6 +251,83 @@ class CharErstellungScene(Szene):
         self.bestaetigen_button.draw(surface)
 
 
+_HAUPTQUEST_FLAVOR = {
+    "frueh": [
+        "Der Weg zum Dämonenkönig beginnt mit einem einzigen Rang - mach weiter.",
+        "Irgendwo da draußen wartet eine Geschichte, die größer ist als jeder einzelne Auftrag.",
+    ],
+    "mitte": [
+        "Die Gerüchte über den Dämonenkönig werden lauter. Rang S ist noch fern - aber näher als gestern.",
+        "Jeder Fortschritt bringt die Konfrontation mit Abraxos einen Schritt näher.",
+    ],
+    "spaet": [
+        "Rang S ist erreicht. Die Jagd auf die Unterlinge des Dämonenkönigs kann beginnen.",
+        "Die Koalition zählt auf dich. Das Ende dieser Geschichte liegt nun in deiner Hand.",
+    ],
+}
+
+
+def _hauptquest_erinnerung(charakter) -> tuple[str | None, bool]:
+    """Bestimmt, ob (und mit welchem Text) die Haupthandlung im Hub in
+    Erinnerung gerufen wird. Wirklich wichtige Zustände (eine wartende
+    Entscheidung des Gildenmeisters, ein bereit stehender Dämonenkönig)
+    erscheinen IMMER und deutlich markiert (dringend=True); reine
+    Fortschritts-Ambiance dagegen nur mit einer gewissen Wahrscheinlichkeit,
+    damit sie nicht bei jedem einzelnen Hub-Besuch nervt."""
+    entscheidung = naechste_entscheidung(charakter) if charakter.gilde else None
+    if entscheidung is not None:
+        return f"❗ {gildenmeister_name(charakter)} wartet im Gildenviertel - es gibt etwas Wichtiges zu besprechen.", True
+    if demonenkoenig_verfuegbar(charakter):
+        return f"👑 Alle Unterlinge sind gefallen. {DAEMONENKOENIG_NAME} erwartet dich im Gildenviertel.", True
+    if daemonenjagd_verfuegbar(charakter) and charakter.besiegte_daemonenfuersten:
+        rest = len(DAEMONENFUERSTEN) - len(charakter.besiegte_daemonenfuersten)
+        if rest > 0:
+            return f"👹 Noch {rest} Unterlinge des Dämonenkönigs sind am Leben - die Dämonenjagd wartet im Gildenviertel.", False
+    if random.random() < 0.3:
+        if charakter.besiegte_daemonenfuersten or charakter.rang in ("A", "S"):
+            gruppe = "spaet"
+        elif charakter.rang in ("C", "B"):
+            gruppe = "mitte"
+        else:
+            gruppe = "frueh"
+        return random.choice(_HAUPTQUEST_FLAVOR[gruppe]), False
+    return None, False
+
+
+def _zeichne_hauptquest_banner(surface, rect, text, dringend, start_zeit):
+    """Auffällig pulsierender/leicht schwebender Banner - 'markant animiert',
+    wie für die Haupthandlung gewünscht. Rein wall-clock-basiert (siehe
+    widgets.SchwebeText/animierter_balken für dasselbe Muster), also ohne
+    dt durch draw() fädeln zu müssen."""
+    t = time.time() - start_zeit
+    puls = (math.sin(t * 3.2) + 1) / 2  # 0..1
+    bob = int(math.sin(t * 2.0) * 3)
+    ziel = rect.move(0, bob)
+
+    basis_farbe = theme.FARBEN["gefahr"] if dringend else theme.FARBEN["akzent"]
+    glow_rect = ziel.inflate(18, 18)
+    glow = pygame.Surface(glow_rect.size, pygame.SRCALPHA)
+    alpha = int(60 + puls * 90)
+    pygame.draw.rect(glow, (*basis_farbe, alpha), glow.get_rect(), border_radius=16)
+    surface.blit(glow, glow_rect.topleft)
+
+    widgets.panel(surface, ziel, ornament=False)
+    rand_breite = 3 if not dringend else 3 + round(puls * 2)
+    pygame.draw.rect(surface, basis_farbe, ziel, width=rand_breite, border_radius=10)
+
+    innen = ziel.inflate(-36, -14)
+    farbe_text = theme.FARBEN["akzent_hell"] if dringend else theme.FARBEN["text"]
+    widgets.text_block(surface, text, theme.font_titel(17, fett=dringend), farbe_text, innen)
+
+    hinweis = theme.font(11).render("(klicken zum Ausblenden)", True, theme.FARBEN["text_dim"])
+    surface.blit(hinweis, (ziel.right - hinweis.get_width() - 12, ziel.bottom - 16))
+
+
+_BANNER_Y = 238
+_BANNER_HOEHE = 58
+_BANNER_ABSTAND_ZU_BUTTONS = 24
+
+
 class HubScene(Szene):
     def __init__(self, app, charakter, welt):
         super().__init__(app)
@@ -255,6 +336,9 @@ class HubScene(Szene):
         self.welt = welt
         self.ort_ids = orte.hub_orte(charakter)
         self.buttons: list[Button] = []
+        self._banner_text, self._banner_dringend = _hauptquest_erinnerung(charakter)
+        self._banner_zeit = time.time()
+        self._banner_rect: pygame.Rect | None = None
         self._baue_buttons()
         try:
             savegame.speichern(charakter, welt, slot=charakter.spielstand_slot or "spielstand")
@@ -263,7 +347,7 @@ class HubScene(Szene):
 
     def _baue_buttons(self):
         self.buttons = []
-        start_y = 258
+        start_y = (_BANNER_Y + _BANNER_HOEHE + _BANNER_ABSTAND_ZU_BUTTONS) if self._banner_text else 258
         breite = 760
         abstand = 14
         anzahl = len(self.ort_ids)
@@ -281,6 +365,10 @@ class HubScene(Szene):
             self.buttons.append(Button(rect, f"{ort.icon}  {ort.name}", groesse=23 if hoehe >= 55 else 19, subtitle=orte.ORT_BESCHREIBUNGEN[ort_id], subtitle_groesse=untertitel_groesse))
 
     def handle_event(self, event):
+        if self._banner_text and event.type == pygame.MOUSEBUTTONDOWN and self._banner_rect and self._banner_rect.collidepoint(event.pos):
+            self._banner_text = None
+            self._baue_buttons()
+            return
         for i, button in enumerate(self.buttons):
             if button.handle_event(event):
                 ort_id = self.ort_ids[i]
@@ -301,6 +389,10 @@ class HubScene(Szene):
             kopf_text = f"Wohin geht {self.charakter.name}? (Aktionen übrig: {self.charakter.aktionen_uebrig}/{MAX_AKTIONEN_PRO_TAG})"
         kopf = theme.font_titel(23).render(kopf_text, True, theme.FARBEN["akzent_hell"])
         surface.blit(kopf, (theme.BREITE // 2 - kopf.get_width() // 2, 205))
+
+        if self._banner_text:
+            self._banner_rect = pygame.Rect(80, _BANNER_Y, theme.BREITE - 160, _BANNER_HOEHE)
+            _zeichne_hauptquest_banner(surface, self._banner_rect, self._banner_text, self._banner_dringend, self._banner_zeit)
         for button in self.buttons:
             button.draw(surface)
 

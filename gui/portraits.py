@@ -79,6 +79,25 @@ def _bild_fuer_klasse(klasse_id: str, gespiegelt: bool) -> pygame.Surface:
     return _BILD_CACHE[schluessel]
 
 
+def _rahmen(bild: pygame.Surface, radius: int, ring_farbe, ring_hell) -> pygame.Surface:
+    """Gemeinsame Rahmen-Logik (Schatten + Kreis-Zuschnitt + Ring) für
+    gerahmt() und gildenmeister() - Bild wird als bereits skaliertes
+    Quadrat (durchmesser x durchmesser) erwartet."""
+    durchmesser = radius * 2
+    rand = max(6, radius // 5)
+    breite = durchmesser + rand * 2
+    gesamt = pygame.Surface((breite, breite), pygame.SRCALPHA)
+    mitte = breite // 2
+
+    schatten = pygame.Surface((breite, breite), pygame.SRCALPHA)
+    pygame.draw.circle(schatten, (0, 0, 0, 100), (mitte + 2, mitte + 3), radius + 3)
+    gesamt.blit(schatten, (0, 0))
+    gesamt.blit(bild, (rand, rand))
+    pygame.draw.circle(gesamt, ring_farbe, (mitte, mitte), radius + rand // 2, width=max(2, rand // 2))
+    pygame.draw.circle(gesamt, ring_hell, (mitte, mitte), radius - 1, width=1)
+    return gesamt
+
+
 def gerahmt(klasse_id: str, radius: int = 40, variante: str | None = None) -> pygame.Surface:
     """Fertig gerahmtes Kreis-Portrait (Bild + weicher Schatten + Ring) einer
     Klasse in der gewünschten Größe. Ohne `variante` erscheint der
@@ -99,21 +118,35 @@ def gerahmt(klasse_id: str, radius: int = 40, variante: str | None = None) -> py
     if schluessel in _GERAHMT_CACHE:
         return _GERAHMT_CACHE[schluessel]
 
-    durchmesser = radius * 2
     bild = _bild_fuer_klasse(klasse_id, gespiegelt)
-    skaliert = pygame.transform.smoothscale(bild, (durchmesser, durchmesser))
+    skaliert = pygame.transform.smoothscale(bild, (radius * 2, radius * 2))
+    gesamt = _rahmen(skaliert, radius, ring_farbe, ring_hell)
 
-    rand = max(6, radius // 5)
-    breite = durchmesser + rand * 2
-    gesamt = pygame.Surface((breite, breite), pygame.SRCALPHA)
-    mitte = breite // 2
+    _GERAHMT_CACHE[schluessel] = gesamt
+    return gesamt
 
-    schatten = pygame.Surface((breite, breite), pygame.SRCALPHA)
-    pygame.draw.circle(schatten, (0, 0, 0, 100), (mitte + 2, mitte + 3), radius + 3)
-    gesamt.blit(schatten, (0, 0))
-    gesamt.blit(skaliert, (rand, rand))
-    pygame.draw.circle(gesamt, ring_farbe, (mitte, mitte), radius + rand // 2, width=max(2, rand // 2))
-    pygame.draw.circle(gesamt, ring_hell, (mitte, mitte), radius - 1, width=1)
+
+# Eigenständiges Portrait für den Gildenmeister: portrait_05.png (älter,
+# kantig, autoritär - passt zu einer erfahrenen Gilden-Führungsfigur), aber
+# mit einer exklusiven kriegsroten Ringfarbe statt einer der Klassen-/
+# Begleiter-Ringvarianten - er ist keine "Klasse", sondern eine eigenständige,
+# über den ganzen Spieldurchlauf wiederkehrende Figur, und soll auch optisch
+# klar von Spieler und Begleitern abgesetzt sein.
+_GILDENMEISTER_DATEI = "portrait_05.png"
+_GILDENMEISTER_RING = ((168, 44, 44), (214, 92, 92))
+
+
+def gildenmeister(radius: int = 40) -> pygame.Surface:
+    schluessel = ("__gildenmeister__", radius)
+    if schluessel in _GERAHMT_CACHE:
+        return _GERAHMT_CACHE[schluessel]
+
+    bild_schluessel = f"{_GILDENMEISTER_DATEI}:False"
+    if bild_schluessel not in _BILD_CACHE:
+        _BILD_CACHE[bild_schluessel] = pygame.image.load(os.path.join(_ORDNER, _GILDENMEISTER_DATEI)).convert_alpha()
+    skaliert = pygame.transform.smoothscale(_BILD_CACHE[bild_schluessel], (radius * 2, radius * 2))
+    ring_farbe, ring_hell = _GILDENMEISTER_RING
+    gesamt = _rahmen(skaliert, radius, ring_farbe, ring_hell)
 
     _GERAHMT_CACHE[schluessel] = gesamt
     return gesamt

@@ -315,6 +315,22 @@ def ereignis_legendaer(charakter: Charakter) -> Ereignis:
     )
 
 
+def _ereignis_gildenmeister(charakter: Charakter, welt: Welt) -> "Ereignis | Kampfstart":
+    """Sporadische Begegnung mit dem (namentlich festen) Gildenmeister -
+    lokaler Import, um den Zirkelimport events<->gildenmeister zu vermeiden
+    (game.gildenmeister importiert seinerseits Ereignis aus diesem Modul).
+    Ohne Gildenmitgliedschaft tritt der Charakter zunächst einer Gilde bei;
+    danach überwiegt das kurze Gespräch über den Fortschritt deutlich
+    gegenüber dem selteneren, aufwendigeren Sonderauftrag."""
+    from game.gildenmeister import gildenmeister_gespraech, gildenmeister_sonderauftrag
+
+    if not charakter.gilde:
+        return ereignis_gilde(charakter, welt)
+    if random.random() < 0.3:
+        return gildenmeister_sonderauftrag(charakter)
+    return gildenmeister_gespraech(charakter)
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -322,6 +338,7 @@ def ereignis_legendaer(charakter: Charakter) -> Ereignis:
 EREIGNIS_GEWICHTE = {
     "kampf": 22, "dungeon": 14, "daemon": 6, "schatz": 12, "mentor": 6,
     "rivale": 8, "haendler": 8, "konflikt": 10, "moral": 8, "gilde": 8, "politik": 4, "legendaer": 2,
+    "gildenmeister": 7,
 }
 
 
@@ -343,5 +360,6 @@ def zufallsereignis(charakter: Charakter, welt: Welt) -> "Ereignis | Kampfstart"
         "gilde": lambda: ereignis_gilde(charakter, welt),
         "politik": lambda: ereignis_politik(charakter, welt),
         "legendaer": lambda: ereignis_legendaer(charakter),
+        "gildenmeister": lambda: _ereignis_gildenmeister(charakter, welt),
     }
     return dispatch[kategorie]()
