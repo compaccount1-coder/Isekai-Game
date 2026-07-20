@@ -41,7 +41,7 @@ def _statusleiste(surface, charakter):
     f_gross = theme.font_titel(22)
     f_klein = theme.font(16)
 
-    portrait = portraits.gerahmt(charakter.klasse_id, radius=48)
+    portrait = portraits.gerahmt(charakter.klasse_id, radius=48, variante=charakter.name)
     surface.blit(portrait, portrait.get_rect(midleft=(rect.x + 20, rect.centery)))
     text_x = rect.x + 30 + portrait.get_width()
 
